@@ -56,6 +56,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
   DateTime? _endDate;
   String _searchText = '';
 
+  // Ses çalma durumunu izleyen değişken
+  int? _playingSessionId;
+
   List<ChatSession> get _filteredSessions {
     return _historySessions.where((session) {
       // Apply date filter
@@ -290,6 +293,22 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
   }
 
+  // Sesli anlatımı başlatma/durdurma
+  void _toggleAudio(ChatSession session) {
+    setState(() {
+      if (_playingSessionId == int.tryParse(session.id)) {
+        // Eğer bu session zaten çalıyorsa, durdur
+        _playingSessionId = null;
+        AccessibilityService().stopSpeaking();
+        AccessibilityService().speak('Audio stopped');
+      } else {
+        // Yeni sesli anlatımı başlat
+        _playingSessionId = int.tryParse(session.id);
+        AccessibilityService().speak(session.summary);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     // Update the navigation controller to reflect current screen
@@ -301,7 +320,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('History'),
+        title: const Text('Previous Prompts'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
@@ -347,53 +366,117 @@ class _HistoryScreenState extends State<HistoryScreen> {
                   ],
                 ),
               )
-              : ListView.builder(
-                itemCount: _filteredSessions.length,
-                padding: const EdgeInsets.all(8.0),
-                itemBuilder: (context, index) {
-                  final session = _filteredSessions[index];
-                  return Semantics(
-                    button: true,
-                    label:
-                        'Chat session from ${session.formattedDate}. Summary: ${session.summary}. Double tap to open details.',
-                    child: Card(
-                      margin: const EdgeInsets.symmetric(
-                        vertical: 8.0,
-                        horizontal: 12.0,
+              : Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: ListView.separated(
+                          itemCount: _filteredSessions.length,
+                          separatorBuilder: (context, index) => const SizedBox(height: 12.0),
+                          padding: const EdgeInsets.all(4.0),
+                          itemBuilder: (context, index) {
+                            final session = _filteredSessions[index];
+                            final bool isPlaying = _playingSessionId == int.tryParse(session.id);
+                            
+                            return Semantics(
+                              button: true,
+                              label: 'Chat session from ${session.formattedDate}. Summary: ${session.summary}. Double tap to open details.',
+                              child: Card(
+                                margin: EdgeInsets.zero,
+                                elevation: 2.0,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12.0),
+                                ),
+                                child: InkWell(
+                                  onTap: () => _openSessionDetail(session),
+                                  borderRadius: BorderRadius.circular(12.0),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Padding(
+                                        padding: const EdgeInsets.all(16.0),
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                              children: [
+                                                // Tarih başlığı
+                                                Text(
+                                                  DateFormat('MMM dd, yyyy').format(session.timestamp),
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: AppTheme.textSecondary,
+                                                  ),
+                                                ),
+                                                // Saat gösterimi
+                                                Text(
+                                                  DateFormat('HH:mm').format(session.timestamp),
+                                                  style: TextStyle(
+                                                    fontSize: 14,
+                                                    color: AppTheme.textSecondary,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            const SizedBox(height: 8),
+                                            // Ana içerik
+                                            Text(
+                                              session.summary,
+                                              style: const TextStyle(
+                                                fontSize: 16,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                              maxLines: 3,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      // Alt kısım - ses butonu ve detay butonu
+                                      Container(
+                                        decoration: BoxDecoration(
+                                          color: Colors.grey.shade50,
+                                          borderRadius: const BorderRadius.only(
+                                            bottomLeft: Radius.circular(12.0),
+                                            bottomRight: Radius.circular(12.0),
+                                          ),
+                                        ),
+                                        child: Row(
+                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            // Ses butonu
+                                            IconButton(
+                                              onPressed: () => _toggleAudio(session),
+                                              icon: Icon(
+                                                isPlaying ? Icons.stop : Icons.volume_up,
+                                                color: isPlaying ? Colors.blue : Colors.grey.shade700,
+                                              ),
+                                              tooltip: isPlaying ? 'Stop audio' : 'Play audio',
+                                            ),
+                                            // Detay butonu
+                                            TextButton.icon(
+                                              onPressed: () => _openSessionDetail(session),
+                                              icon: const Icon(Icons.chevron_right),
+                                              label: const Text('Details'),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       ),
-                      child: ListTile(
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 8.0,
-                          horizontal: 16.0,
-                        ),
-                        title: Text(
-                          DateFormat('MMM d').format(session.timestamp) +
-                              ' – ' +
-                              session.summary.split('\n').first,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w500,
-                            fontSize: AppTheme.regularTextSize,
-                          ),
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        subtitle: Padding(
-                          padding: const EdgeInsets.only(top: 8.0),
-                          child: Text(
-                            DateFormat('HH:mm').format(session.timestamp),
-                            style: TextStyle(
-                              fontSize: AppTheme.smallTextSize,
-                              color: AppTheme.textSecondary,
-                            ),
-                          ),
-                        ),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => _openSessionDetail(session),
-                      ),
-                    ),
-                  );
-                },
-              ),
+                    ],
+                  ),
+                ),
       bottomNavigationBar: AccessibleBottomNav(onTabChanged: _handleTabChange),
     );
   }

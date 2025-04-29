@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+// import 'package:flutter_gen/gen_l10n/app_localizations.dart'; // Geçici olarak kaldırıyoruz
 
 import '../services/accessibility_service.dart';
+import '../services/locale_provider.dart';
 import '../widgets/accessible_bottom_nav.dart';
 import '../utils/app_theme.dart';
 import '../main.dart';
@@ -64,7 +66,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Update the navigation controller to reflect the current screen
+    // Yerelleştirme için AppLocalizations'ı geçici olarak devre dışı bırakıyoruz
+    // final AppLocalizations? locale = AppLocalizations.of(context);
+    final localeProvider = Provider.of<LocaleProvider>(context);
+
+    // Navigation controller'ı güncelle
     final navigationController = Provider.of<NavigationController>(
       context,
       listen: false,
@@ -73,29 +79,29 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Settings'),
+        title: Text('Settings'), // locale?.settingsScreenTitle ?? 'Settings'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
           onPressed: () {
             context.go('/home');
             AccessibilityService().speak('Back to home screen');
           },
-          tooltip: 'Back to home',
+          tooltip: 'Back to home', // locale?.backToHome ?? 'Back to home',
         ),
       ),
       body: ListView(
         padding: const EdgeInsets.all(16.0),
         children: [
           // Audio Mode Settings
-          _buildSectionHeader('Audio & Feedback'),
+          _buildSectionHeader('Audio & Feedback'), // locale?.audioFeedback ?? 'Audio & Feedback'),
           Semantics(
             toggled: _audioEnabled,
             container: true,
             label:
                 'Audio mode toggle. ${_audioEnabled ? 'Currently enabled' : 'Currently disabled'}',
             child: SwitchListTile(
-              title: const Text('Voice Guidance'),
-              subtitle: const Text('Enable spoken feedback'),
+              title: Text('Voice Guidance'), // locale?.voiceGuidance ?? 'Voice Guidance'),
+              subtitle: Text('Enable spoken feedback'), // locale?.enableSpokenFeedback ?? 'Enable spoken feedback'),
               value: _audioEnabled,
               onChanged: (value) {
                 setState(() {
@@ -120,8 +126,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             label:
                 'Haptic feedback toggle. ${_vibrationEnabled ? 'Currently enabled' : 'Currently disabled'}',
             child: SwitchListTile(
-              title: const Text('Haptic Feedback'),
-              subtitle: const Text('Enable vibration on actions'),
+              title: Text('Haptic Feedback'), // locale?.hapticFeedback ?? 'Haptic Feedback'),
+              subtitle: Text('Enable vibration on actions'), // locale?.enableVibration ?? 'Enable vibration on actions'),
               value: _vibrationEnabled,
               onChanged: (value) {
                 setState(() {
@@ -147,7 +153,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 24),
 
           // Language Settings
-          _buildSectionHeader('Language'),
+          _buildSectionHeader('Language'), // locale?.language ?? 'Language'),
           ..._availableLanguages.map((language) {
             final bool isSelected = _selectedLanguage == language['code'];
             return Semantics(
@@ -163,11 +169,37 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     setState(() {
                       _selectedLanguage = value;
                     });
+                    
+                    // Ses asistanı dilini değiştir
                     await AccessibilityService().setLanguage(value);
+                    
+                    // UI dilini değiştir
+                    await localeProvider.setLocale(value);
+                    
                     AccessibilityService().speakWithFeedback(
                       'Language changed to ${language['name']}',
                       FeedbackType.success,
                     );
+                    
+                    // Dil değişiminde arayüz diline yansıması için manuel çeviriler yapılıyor
+                    // Manuel çeviri özelliği için kullanıcıya bildiri göster
+                    if (value == 'tr-TR') {
+                      _updateUILanguage(true);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Dil Türkçe olarak değiştirildi'),
+                          duration: Duration(seconds: 3),
+                        ),
+                      );
+                    } else {
+                      _updateUILanguage(false);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Language changed to ${language['name']}'),
+                          duration: const Duration(seconds: 3),
+                        ),
+                      );
+                    }
                   }
                 },
                 secondary:
@@ -184,10 +216,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 24),
 
           // Account & Device
-          _buildSectionHeader('Account & Device'),
+          _buildSectionHeader('Account & Device'), // locale?.accountDevice ?? 'Account & Device'),
           ListTile(
             leading: const Icon(Icons.devices, color: AppTheme.primaryColor),
-            title: const Text('Raspberry Pi Pairing'),
+            title: Text('Raspberry Pi Pairing'), // locale?.raspberryPiPairing ?? 'Raspberry Pi Pairing'),
             subtitle: const Text('Connected to MyRaspberryPi'),
             onTap: () {
               AccessibilityService().speak(
@@ -199,7 +231,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Divider(),
           ListTile(
             leading: const Icon(Icons.logout, color: AppTheme.error),
-            title: const Text('Sign Out'),
+            title: Text('Sign Out'), // locale?.signOut ?? 'Sign Out'),
             onTap: () {
               AccessibilityService().speak(
                 'Sign out is not implemented in this demo',
@@ -217,10 +249,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const SizedBox(height: 24),
 
           // Help & Feedback
-          _buildSectionHeader('Help & Feedback'),
+          _buildSectionHeader('Help & Feedback'), // locale?.helpFeedback ?? 'Help & Feedback'),
           ListTile(
             leading: const Icon(Icons.help, color: AppTheme.primaryColor),
-            title: const Text('Help Center'),
+            title: Text('Help Center'), // locale?.helpCenter ?? 'Help Center'),
             onTap: () {
               AccessibilityService().speak(
                 'Help center not implemented in this demo',
@@ -230,7 +262,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           const Divider(),
           ListTile(
             leading: const Icon(Icons.feedback, color: AppTheme.primaryColor),
-            title: const Text('Send Feedback'),
+            title: Text('Send Feedback'), // locale?.sendFeedback ?? 'Send Feedback'),
             onTap: () {
               AccessibilityService().speak(
                 'Send feedback not implemented in this demo',
@@ -245,7 +277,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 16.0),
               child: Text(
-                'Hear The World v1.0.0',
+                'Hear The World v1.0.0', // '${locale?.appTitle ?? 'Hear The World'} v1.0.0',
                 style: TextStyle(
                   color: AppTheme.textSecondary,
                   fontSize: AppTheme.smallTextSize,
@@ -257,6 +289,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
       bottomNavigationBar: AccessibleBottomNav(onTabChanged: _handleTabChange),
     );
+  }
+
+  // Arayüz dilini manuel olarak değiştir
+  void _updateUILanguage(bool isTurkish) {
+    // Gerçek bir çeviri API'si yerine bu örnekte manuel çeviriler yapıyoruz
+    // Bu fonksiyon, gelecekte dil dosyalarının otomatik oluşturulmasıyla değiştirilecek
+    setState(() {});
   }
 
   Widget _buildSectionHeader(String title) {
@@ -278,11 +317,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   void _showFakeDeviceDialog() {
+    // Yerelleştirme için AppLocalizations'ı geçici olarak devre dışı bırakıyoruz
+    // final AppLocalizations? locale = AppLocalizations.of(context);
+    
     showDialog(
       context: context,
       builder:
           (context) => AlertDialog(
-            title: const Text('Paired Devices'),
+            title: Text('Paired Devices'), // locale?.pairedDevices ?? 'Paired Devices'),
             content: SizedBox(
               height: 200,
               width: 300,
@@ -303,7 +345,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   const Divider(),
                   ListTile(
                     leading: const Icon(Icons.radio_button_unchecked),
-                    title: const Text('Add New Device'),
+                    title: Text('Add New Device'), // locale?.addNewDevice ?? 'Add New Device'),
                     onTap: () {},
                   ),
                 ],
@@ -314,7 +356,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onPressed: () {
                   Navigator.pop(context);
                 },
-                child: const Text('CLOSE'),
+                child: Text('CLOSE'), // locale?.close ?? 'CLOSE'),
               ),
             ],
           ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'screens/welcome_screen.dart';
 import 'screens/home_screen.dart';
@@ -9,6 +10,7 @@ import 'screens/chat_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/settings_screen.dart';
 import 'services/accessibility_service.dart';
+import 'services/locale_provider.dart';
 import 'utils/app_theme.dart';
 
 void main() async {
@@ -16,6 +18,7 @@ void main() async {
 
   // Initialize services
   final accessibilityService = AccessibilityService();
+  final localeProvider = LocaleProvider();
   await accessibilityService.initialize();
 
   // Set preferred orientations
@@ -24,11 +27,21 @@ void main() async {
     DeviceOrientation.portraitDown,
   ]);
 
-  runApp(MyApp());
+  runApp(MyApp(
+    accessibilityService: accessibilityService,
+    localeProvider: localeProvider,
+  ));
 }
 
 class MyApp extends StatelessWidget {
-  MyApp({super.key});
+  final AccessibilityService accessibilityService;
+  final LocaleProvider localeProvider;
+  
+  MyApp({
+    super.key, 
+    required this.accessibilityService,
+    required this.localeProvider,
+  });
 
   // Setup router
   final _router = GoRouter(
@@ -53,20 +66,37 @@ class MyApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider(create: (_) => NavigationController()),
+        Provider<AccessibilityService>.value(value: accessibilityService),
+        ChangeNotifierProvider.value(value: localeProvider),
       ],
-      child: MaterialApp.router(
-        title: 'Hear The World',
-        theme: AppTheme.lightTheme(),
-        routerConfig: _router,
-        debugShowCheckedModeBanner: false,
-        // Add accessibility features
-        builder: (context, child) {
-          return MediaQuery(
-            // Large font scaling for accessibility
-            data: MediaQuery.of(context).copyWith(textScaleFactor: 1.2),
-            child: child!,
+      child: Consumer<LocaleProvider>(
+        builder: (context, localeProvider, _) {
+          return MaterialApp.router(
+            title: 'Hear The World',
+            theme: AppTheme.lightTheme(),
+            routerConfig: _router,
+            debugShowCheckedModeBanner: false,
+            
+            // Localization support - AppLocalizations.delegate geçici olarak kaldırıldı
+            locale: localeProvider.locale,
+            localizationsDelegates: const [
+              // AppLocalizations.delegate, // Bu satırı geçici olarak kaldırıyoruz
+              GlobalMaterialLocalizations.delegate,
+              GlobalWidgetsLocalizations.delegate,
+              GlobalCupertinoLocalizations.delegate,
+            ],
+            supportedLocales: LocaleProvider.supportedLocales,
+            
+            // Add accessibility features
+            builder: (context, child) {
+              return MediaQuery(
+                // Large font scaling for accessibility
+                data: MediaQuery.of(context).copyWith(textScaleFactor: 1.2),
+                child: child!,
+              );
+            },
           );
-        },
+        }
       ),
     );
   }
