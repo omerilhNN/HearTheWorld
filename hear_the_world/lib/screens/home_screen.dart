@@ -83,7 +83,6 @@ class _HomeScreenState extends State<HomeScreen> {
       print('Dil kontrolü sırasında hata: $e');
     }
   }
-
   void _handleTabChange(int index) {
     switch (index) {
       case 0:
@@ -94,6 +93,9 @@ class _HomeScreenState extends State<HomeScreen> {
         break;
       case 2:
         context.go('/settings');
+        break;
+      case 3:
+        context.go('/forum');
         break;
     }
   }
@@ -283,14 +285,22 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ],
                     ),
-                  ),
-                  ListTile(
+                  ),                  ListTile(
                     leading: const Icon(Icons.settings),
                     title: Text(_isTurkish ? 'Ayarlar' : 'Settings'),
                     onTap: () {
                       Navigator.pop(context);
                       context.go('/settings');
                       AccessibilityService().speak(_isTurkish ? 'Ayarlar ekranı' : 'Settings screen');
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.forum),
+                    title: Text(_isTurkish ? 'Anılar Forumu' : 'Memories Forum'),
+                    onTap: () {
+                      Navigator.pop(context);
+                      context.go('/forum');
+                      AccessibilityService().speak(_isTurkish ? 'Anılar forumu ekranı' : 'Memories forum screen');
                     },
                   ),
                   ListTile(
@@ -382,6 +392,83 @@ class _HomeScreenState extends State<HomeScreen> {
                               ),
                             ),
                             const Icon(
+                              Icons.arrow_forward_ios,
+                              size: 20,
+                              color: AppTheme.textSecondary,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),              ),
+              
+              // Memories Forum Card
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: GestureDetector(
+                  onTap: () {
+                    AccessibilityService().speakWithFeedback(
+                      _isTurkish 
+                          ? 'Forum ekranına gidiliyor. Görme engelli kullanıcıların paylaştığı anıları dinleyebilirsiniz.'
+                          : 'Going to forum screen. Listen to memories shared by visually impaired users.',
+                      FeedbackType.info,
+                    );
+                    context.go('/forum');
+                  },
+                  child: Semantics(
+                    button: true,
+                    label: _isTurkish 
+                        ? 'Anılar Forumu. Görme engelli kullanıcıların paylaştığı anıları dinlemek için dokunun'
+                        : 'Memories Forum. Tap to listen to memories shared by visually impaired users',
+                    child: Card(
+                      color: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                        side: BorderSide(color: AppTheme.accentColor.withOpacity(0.3), width: 1),
+                      ),
+                      elevation: 2,
+                      child: Container(
+                        width: double.infinity,
+                        height: 100,
+                        padding: const EdgeInsets.all(20),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                color: AppTheme.accentLightColor.withOpacity(0.2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Icon(
+                                Icons.forum,
+                                size: 28,
+                                color: AppTheme.accentColor,
+                              ),
+                            ),
+                            const SizedBox(width: 20),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    _isTurkish ? 'Anılar Forumu' : 'Memories Forum',
+                                    style: Theme.of(context).textTheme.titleLarge,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _isTurkish 
+                                        ? 'Görme engelli kullanıcıların anılarını dinleyin'
+                                        : 'Listen to memories from visually impaired users',
+                                    style: Theme.of(context).textTheme.bodyMedium
+                                        ?.copyWith(color: AppTheme.textSecondary),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
                               Icons.arrow_forward_ios,
                               size: 20,
                               color: AppTheme.textSecondary,

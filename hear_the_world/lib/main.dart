@@ -9,17 +9,23 @@ import 'screens/home_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/settings_screen.dart';
+import 'screens/forum_screen.dart';
+import 'screens/create_memory_screen.dart';
+import 'screens/memory_detail_screen.dart';
 import 'services/accessibility_service.dart';
 import 'services/locale_provider.dart';
+import 'services/forum_service.dart';
 import 'utils/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
   // Initialize services
   final accessibilityService = AccessibilityService();
   final localeProvider = LocaleProvider();
+  final forumService = ForumService();
+  
   await accessibilityService.initialize();
+  await forumService.initialize();
 
   // Set preferred orientations
   await SystemChrome.setPreferredOrientations([
@@ -42,7 +48,6 @@ class MyApp extends StatelessWidget {
     required this.accessibilityService,
     required this.localeProvider,
   });
-
   // Setup router
   final _router = GoRouter(
     initialLocation: '/',
@@ -53,10 +58,22 @@ class MyApp extends StatelessWidget {
       GoRoute(
         path: '/history',
         builder: (context, state) => const HistoryScreen(),
-      ),
-      GoRoute(
+      ),      GoRoute(
         path: '/settings',
         builder: (context, state) => const SettingsScreen(),
+      ),
+      GoRoute(
+        path: '/forum',
+        builder: (context, state) => const ForumScreen(),
+      ),      GoRoute(
+        path: '/create-memory',
+        builder: (context, state) => const CreateMemoryScreen(),
+      ),
+      GoRoute(
+        path: '/memory/:id',
+        builder: (context, state) => MemoryDetailScreen(
+          memoryId: state.pathParameters['id'] ?? '',
+        ),
       ),
     ],
   );

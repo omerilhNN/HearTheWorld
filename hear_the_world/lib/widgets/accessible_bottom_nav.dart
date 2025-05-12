@@ -31,8 +31,7 @@ class AccessibleBottomNav extends StatelessWidget {
 
           // Provide audio feedback based on selected tab
           String screenName = '';
-          switch (index) {
-            case 0:
+          switch (index) {            case 0:
               screenName = 'Home';
               break;
             case 1:
@@ -40,6 +39,9 @@ class AccessibleBottomNav extends StatelessWidget {
               break;
             case 2:
               screenName = 'Settings';
+              break;
+            case 3:
+              screenName = 'Forum';
               break;
           }
 
@@ -51,8 +53,7 @@ class AccessibleBottomNav extends StatelessWidget {
         selectedFontSize: 14,
         unselectedFontSize: 14,
         iconSize: 28,
-        type: BottomNavigationBarType.fixed,
-        items: const [
+        type: BottomNavigationBarType.fixed,        items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.home),
             label: 'Home',
@@ -67,6 +68,11 @@ class AccessibleBottomNav extends StatelessWidget {
             icon: Icon(Icons.settings),
             label: 'Settings',
             tooltip: 'Go to settings screen',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.forum),
+            label: 'Forum',
+            tooltip: 'Go to memories forum',
           ),
         ],
       ),

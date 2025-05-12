@@ -89,7 +89,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
       );
     });
   }
-
   void _handleTabChange(int index) {
     switch (index) {
       case 0:
@@ -100,6 +99,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
         break;
       case 2:
         context.go('/settings');
+        break;
+      case 3:
+        context.go('/forum');
         break;
     }
   }

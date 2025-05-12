@@ -49,7 +49,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _selectedLanguage = accessibilityService.language;
     });
   }
-
   void _handleTabChange(int index) {
     switch (index) {
       case 0:
@@ -60,6 +59,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         break;
       case 2:
         // Already on settings screen
+        break;
+      case 3:
+        context.go('/forum');
         break;
     }
   }
