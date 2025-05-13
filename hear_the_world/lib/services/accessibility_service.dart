@@ -9,14 +9,13 @@ class AccessibilityService {
   static final AccessibilityService _instance =
       AccessibilityService._internal();
   factory AccessibilityService() => _instance;
-
   AccessibilityService._internal();
 
   late FlutterTts _flutterTts;
   bool _audioEnabled = true;
   bool _hapticEnabled = true;
   String _language = 'en-US';
-
+  Function? _onCompletionCallback;
   Future<void> initialize() async {
     _flutterTts = FlutterTts();
 
@@ -33,6 +32,21 @@ class AccessibilityService {
     ); // Slower rate for better comprehension
     await _flutterTts.setVolume(1.0);
     await _flutterTts.setPitch(1.0);
+    
+    // Set up completion listener
+    _flutterTts.setCompletionHandler(() {
+      if (_onCompletionCallback != null) {
+        _onCompletionCallback!();
+      }
+    });
+  }
+  
+  void setCompletionCallback(Function callback) {
+    _onCompletionCallback = callback;
+  }
+  
+  void clearCompletionCallback() {
+    _onCompletionCallback = null;
   }
 
   Future<void> speak(String text) async {

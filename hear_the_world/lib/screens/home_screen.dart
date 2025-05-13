@@ -92,10 +92,10 @@ class _HomeScreenState extends State<HomeScreen> {
         context.go('/history');
         break;
       case 2:
-        context.go('/settings');
+        context.go('/forum');
         break;
       case 3:
-        context.go('/forum');
+        context.go('/settings');
         break;
     }
   }

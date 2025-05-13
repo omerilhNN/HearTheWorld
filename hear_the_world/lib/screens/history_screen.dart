@@ -98,10 +98,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
         // Already on history screen
         break;
       case 2:
-        context.go('/settings');
+        context.go('/forum');
         break;
       case 3:
-        context.go('/forum');
+        context.go('/settings');
         break;
     }
   }
@@ -261,29 +261,18 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       session.summary,
                       style: TextStyle(fontSize: AppTheme.regularTextSize),
                     ),
-                    const SizedBox(height: 24),
-
-                    // Buttons
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                      children: [
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            AccessibilityService().speak(session.summary);
-                          },
-                          icon: const Icon(Icons.volume_up),
-                          label: const Text('Play Audio'),
+                    const SizedBox(height: 24),                    // Centered Play Audio button
+                    Center(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          AccessibilityService().speak(session.summary);
+                        },
+                        icon: const Icon(Icons.volume_up),
+                        label: const Text('Play Audio'),
+                        style: ElevatedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                         ),
-                        ElevatedButton.icon(
-                          onPressed: () {
-                            AccessibilityService().speak(
-                              'View image feature not implemented in this demo',
-                            );
-                          },
-                          icon: const Icon(Icons.image),
-                          label: const Text('View Image'),
-                        ),
-                      ],
+                      ),
                     ),
                   ],
                 ),
@@ -437,8 +426,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                             ),
                                           ],
                                         ),
-                                      ),
-                                      // Alt kısım - ses butonu ve detay butonu
+                                      ),                                      // Alt kısım - ses butonu, detay butonu, ve ayarlar butonu
                                       Container(
                                         decoration: BoxDecoration(
                                           color: Colors.grey.shade50,
@@ -459,11 +447,20 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                               ),
                                               tooltip: isPlaying ? 'Stop audio' : 'Play audio',
                                             ),
-                                            // Detay butonu
+                                            // Center placeholder
                                             TextButton.icon(
                                               onPressed: () => _openSessionDetail(session),
                                               icon: const Icon(Icons.chevron_right),
                                               label: const Text('Details'),
+                                            ),
+                                            // Settings button on the right
+                                            IconButton(
+                                              onPressed: () {
+                                                context.go('/settings');
+                                                AccessibilityService().speak('Going to settings screen');
+                                              },
+                                              icon: Icon(Icons.settings, color: Colors.grey.shade700),
+                                              tooltip: 'Go to settings',
                                             ),
                                           ],
                                         ),

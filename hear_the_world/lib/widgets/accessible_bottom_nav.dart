@@ -27,21 +27,20 @@ class AccessibleBottomNav extends StatelessWidget {
         currentIndex: currentIndex,
         onTap: (index) {
           navigationController.changeIndex(index);
-          onTabChanged(index);
-
-          // Provide audio feedback based on selected tab
+          onTabChanged(index);          // Provide audio feedback based on selected tab
           String screenName = '';
-          switch (index) {            case 0:
+          switch (index) {            
+            case 0:
               screenName = 'Home';
               break;
             case 1:
               screenName = 'History';
               break;
             case 2:
-              screenName = 'Settings';
+              screenName = 'Forum';
               break;
             case 3:
-              screenName = 'Forum';
+              screenName = 'Settings';
               break;
           }
 
@@ -65,14 +64,14 @@ class AccessibleBottomNav extends StatelessWidget {
             tooltip: 'Go to history screen',
           ),
           BottomNavigationBarItem(
-            icon: Icon(Icons.settings),
-            label: 'Settings',
-            tooltip: 'Go to settings screen',
-          ),
-          BottomNavigationBarItem(
             icon: Icon(Icons.forum),
             label: 'Forum',
             tooltip: 'Go to memories forum',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.settings),
+            label: 'Settings',
+            tooltip: 'Go to settings screen',
           ),
         ],
       ),

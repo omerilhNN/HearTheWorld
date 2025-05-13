@@ -48,8 +48,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _vibrationEnabled = accessibilityService.isHapticEnabled;
       _selectedLanguage = accessibilityService.language;
     });
-  }
-  void _handleTabChange(int index) {
+  }  void _handleTabChange(int index) {
     switch (index) {
       case 0:
         context.go('/home');
@@ -58,10 +57,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         context.go('/history');
         break;
       case 2:
-        // Already on settings screen
+        context.go('/forum');
         break;
       case 3:
-        context.go('/forum');
+        // Already on settings screen
         break;
     }
   }
@@ -77,7 +76,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context,
       listen: false,
     );
-    navigationController.changeIndex(2);
+    navigationController.changeIndex(3);
 
     return Scaffold(
       appBar: AppBar(

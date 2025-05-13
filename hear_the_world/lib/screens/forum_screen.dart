@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/forum_models.dart';
 import '../services/accessibility_service.dart';
@@ -19,7 +22,7 @@ class ForumScreen extends StatefulWidget {
   State<ForumScreen> createState() => _ForumScreenState();
 }
 
-class _ForumScreenState extends State<ForumScreen> {
+class _ForumScreenState extends State<ForumScreen> with AutomaticKeepAliveClientMixin {
   final ForumService _forumService = ForumService();
   final ScrollController _scrollController = ScrollController();
   
@@ -28,11 +31,47 @@ class _ForumScreenState extends State<ForumScreen> {
   int? _playingMemoryId;
   String _searchText = '';
   bool _isTurkish = false;
-
+  StreamSubscription? _memoriesSubscription;
+  
+  // Override to keep the state alive
+  @override
+  bool get wantKeepAlive => true;
   @override
   void initState() {
     super.initState();
+    
+    // Load saved state
+    _loadPlayingState();
+    _loadSearchText();
     _loadMemories();
+    
+    // Set up scroll listener
+    _scrollController.addListener(() {
+      if (_scrollController.hasClients) {
+        _saveScrollPosition();
+      }
+    });
+    
+    // Set completion callback for TTS
+    AccessibilityService().setCompletionCallback(() {
+      setState(() {
+        _playingMemoryId = null;
+        _savePlayingState();
+      });
+    });
+    
+    // Subscribe to memory updates
+    _memoriesSubscription = _forumService.memoriesStream.listen((updatedMemories) {
+      setState(() {
+        _memories = updatedMemories;
+        _isLoading = false;
+      });
+      
+      // After getting memories, restore scroll position
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _restoreScrollPosition();
+      });
+    });
     
     // Announce screen for accessibility
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -48,6 +87,11 @@ class _ForumScreenState extends State<ForumScreen> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     _updateLanguageState();
+    
+    // When screen becomes active again, check if we need to update the list
+    if (!_isLoading && _memories.isEmpty) {
+      _loadMemories();
+    }
   }
 
   void _updateLanguageState() {
@@ -94,24 +138,28 @@ class _ForumScreenState extends State<ForumScreen> {
         context.go('/history');
         break;
       case 2:
-        context.go('/settings');
-        break;
-      case 3:
         // Already on forum screen
         break;
+      case 3:
+        context.go('/settings');
+        break;
     }
-  }
-
-  void _toggleAudio(ForumMemory memory) {
+  }  void _toggleAudio(ForumMemory memory) {
+    final int? memoryId = int.tryParse(memory.id);
+    
+    // First stop any currently playing audio
+    if (_playingMemoryId != null) {
+      AccessibilityService().stopSpeaking();
+    }
+    
     setState(() {
-      if (_playingMemoryId != null && int.tryParse(memory.id) == _playingMemoryId) {
-        // Stop audio if it's already playing
+      if (_playingMemoryId != null && memoryId == _playingMemoryId) {
+        // If this memory is already playing, stop it
         _playingMemoryId = null;
-        AccessibilityService().stopSpeaking();
         AccessibilityService().speak(_isTurkish ? 'Ses durduruldu' : 'Audio stopped');
       } else {
-        // Start playing audio
-        _playingMemoryId = int.tryParse(memory.id);
+        // Start playing this memory
+        _playingMemoryId = memoryId;
         
         // Play full description for better accessibility
         String textToSpeak = '${memory.title}. ${memory.description}';
@@ -120,6 +168,9 @@ class _ForumScreenState extends State<ForumScreen> {
         // Provide haptic feedback
         HapticFeedback.mediumImpact();
       }
+      
+      // Save the current playing state
+      _savePlayingState();
     });
   }
 
@@ -159,6 +210,7 @@ class _ForumScreenState extends State<ForumScreen> {
                         ? '$_searchText için arama sonuçları'
                         : 'Search results for $_searchText'),
               );
+              _saveSearchText();
             },
             child: Text(_isTurkish ? 'ARA' : 'SEARCH'),
           ),
@@ -182,15 +234,7 @@ class _ForumScreenState extends State<ForumScreen> {
           memory.description.toLowerCase().contains(searchLower) ||
           memory.authorName.toLowerCase().contains(searchLower);
     }).toList();
-  }
-  void _shareForum() {
-    // In a complete implementation, this would share the forum
-    AccessibilityService().speak(
-      _isTurkish
-          ? 'Paylaşım özelliği henüz uygulanmadı'
-          : 'Share feature not yet implemented',
-    );
-  }
+  }  // Removed _shareForum method as it's no longer needed
   
   void _addNewMemory() {
     AccessibilityService().speak(
@@ -201,17 +245,74 @@ class _ForumScreenState extends State<ForumScreen> {
     context.go('/create-memory');
   }
 
+  // Save the current playing memory ID to SharedPreferences
+  Future<void> _savePlayingState() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (_playingMemoryId != null) {
+      await prefs.setInt('forum_playing_memory_id', _playingMemoryId!);
+    } else {
+      await prefs.remove('forum_playing_memory_id');
+    }
+  }
+  // Load the previously playing memory ID from SharedPreferences
+  Future<void> _loadPlayingState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedPlayingMemoryId = prefs.getInt('forum_playing_memory_id');
+    
+    // Only restore the playing state if the audio was actually playing
+    if (savedPlayingMemoryId != null) {
+      // We need to verify if this memory still exists in our list before setting the state
+      setState(() {
+        // This will be validated once memories are loaded
+        _playingMemoryId = savedPlayingMemoryId;
+      });
+    }
+  }
+
+  // Save the scroll position for state restoration
+  Future<void> _saveScrollPosition() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble('forum_scroll_position', _scrollController.offset);
+  }
+
+  // Restore the scroll position when returning to the screen
+  Future<void> _restoreScrollPosition() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedPosition = prefs.getDouble('forum_scroll_position');
+    if (savedPosition != null && _scrollController.hasClients) {
+      _scrollController.jumpTo(savedPosition);
+    }
+  }
+
+  // Save the search text
+  Future<void> _saveSearchText() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('forum_search_text', _searchText);
+  }
+
+  // Load the search text
+  Future<void> _loadSearchText() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedSearchText = prefs.getString('forum_search_text');
+    if (savedSearchText != null) {
+      setState(() {
+        _searchText = savedSearchText;
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    super.build(context); // Required for AutomaticKeepAliveClientMixin
+    
     // Update the navigation controller to reflect current screen
     final navigationController = Provider.of<NavigationController>(
       context,
       listen: false,
     );
-    navigationController.changeIndex(3); // Assuming forum is the 4th tab (index 3)
+    navigationController.changeIndex(2); // Forum is now the 3rd tab (index 2)
 
-    return Scaffold(
-      appBar: AppBar(
+    return Scaffold(      appBar: AppBar(
         title: Text(_isTurkish ? 'Anılar Forumu' : 'Memories Forum'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
@@ -228,12 +329,7 @@ class _ForumScreenState extends State<ForumScreen> {
             onPressed: _showSearchDialog,
             tooltip: _isTurkish ? 'Anılarda ara' : 'Search memories',
           ),
-          // Share button
-          IconButton(
-            icon: const Icon(Icons.share),
-            onPressed: _shareForum,
-            tooltip: _isTurkish ? 'Forumu paylaş' : 'Share forum',
-          ),
+          // Removed share button
         ],
       ),
       body: _isLoading
@@ -272,9 +368,15 @@ class _ForumScreenState extends State<ForumScreen> {
                   padding: const EdgeInsets.all(16.0),
                   itemCount: _filteredMemories.length,
                   separatorBuilder: (context, index) => const SizedBox(height: 16),
-                  itemBuilder: (context, index) {
-                    final memory = _filteredMemories[index];
-                    final bool isPlaying = _playingMemoryId == int.tryParse(memory.id);
+                  itemBuilder: (context, index) {                    final memory = _filteredMemories[index];
+                    final memoryId = int.tryParse(memory.id);
+                    final bool isPlaying = _playingMemoryId == memoryId;
+                    
+                    // Force refresh button state when audio state changes
+                    if (_playingMemoryId != null && _playingMemoryId != memoryId) {
+                      // Ensure only one memory plays at a time
+                      AccessibilityService().stopSpeaking();
+                    }
                     
                     return Semantics(
                       button: true,
@@ -360,20 +462,24 @@ class _ForumScreenState extends State<ForumScreen> {
                                 ),
                                 child: Row(
                                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                                  children: [
-                                    // Play/stop button
+                                  children: [                                    // Compact play/stop button that matches screenshot
                                     TextButton.icon(
                                       onPressed: () => _toggleAudio(memory),
+                                      style: TextButton.styleFrom(
+                                        backgroundColor: isPlaying ? Colors.red.shade50 : Colors.transparent,
+                                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                                      ),
                                       icon: Icon(
-                                        isPlaying ? Icons.stop : Icons.volume_up,
-                                        color: isPlaying ? AppTheme.error : AppTheme.primaryColor,
+                                        isPlaying ? Icons.stop : Icons.play_arrow,
+                                        color: isPlaying ? Colors.red : AppTheme.primaryColor,
+                                        size: 20,
                                       ),
                                       label: Text(
-                                        isPlaying
-                                            ? (_isTurkish ? 'Durdur' : 'Stop')
-                                            : (_isTurkish ? 'Dinle' : 'Listen'),
+                                        isPlaying ? 'Stop' : (_isTurkish ? 'Dinle' : 'Play'),
                                         style: TextStyle(
-                                          color: isPlaying ? AppTheme.error : AppTheme.primaryColor,
+                                          color: isPlaying ? Colors.red : AppTheme.primaryColor,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 13,
                                         ),
                                       ),
                                     ),
@@ -421,10 +527,22 @@ class _ForumScreenState extends State<ForumScreen> {
       ),
       bottomNavigationBar: AccessibleBottomNav(onTabChanged: _handleTabChange),
     );
-  }
-
-  @override
+  }  @override
   void dispose() {
+    // Stop any playing audio when navigating away
+    if (_playingMemoryId != null) {
+      AccessibilityService().stopSpeaking();
+    }
+    
+    // Clear the completion callback
+    AccessibilityService().clearCompletionCallback();
+    
+    // Save state before disposing
+    if (_scrollController.hasClients) {
+      _saveScrollPosition();
+    }
+    
+    _memoriesSubscription?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
