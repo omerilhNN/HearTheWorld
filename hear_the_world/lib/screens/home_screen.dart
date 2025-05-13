@@ -100,16 +100,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  void _startNewChat() {
-    AccessibilityService().speakWithFeedback(
-      _isTurkish 
-          ? 'Yeni sohbet başlatılıyor. Raspberry Pi\'ye bağlanılıyor...'
-          : 'Starting new chat. Connecting to Raspberry Pi...',
-      FeedbackType.info,
-    );
-    context.go('/chat');
-  }
-
   void _playAudio(ChatSession session) {
     setState(() {
       if (_playingSessionId == int.tryParse(session.id)) {
@@ -334,75 +324,6 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           body: Column(
             children: [
-              // New Chat Card
-              Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: GestureDetector(
-                  onTap: _startNewChat,
-                  child: Semantics(
-                    button: true,
-                    label: _isTurkish 
-                        ? 'Yeni Sohbet. Raspberry Pi\'den canlı görüntü istemek için dokunun'
-                        : 'New Chat. Tap to request live image from Raspberry Pi',
-                    child: Card(
-                      color: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      elevation: 4,
-                      child: Container(
-                        width: double.infinity,
-                        height: 120,
-                        padding: const EdgeInsets.all(20),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 64,
-                              height: 64,
-                              decoration: BoxDecoration(
-                                color: AppTheme.primaryLightColor.withOpacity(0.2),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                Icons.chat,
-                                size: 32,
-                                color: AppTheme.primaryColor,
-                              ),
-                            ),
-                            const SizedBox(width: 20),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    _isTurkish ? 'Yeni Sohbet' : 'New Chat',
-                                    style:
-                                        Theme.of(context).textTheme.headlineMedium,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    _isTurkish 
-                                        ? 'Raspberry Pi\'den canlı görüntü iste'
-                                        : 'Request live image from Raspberry Pi',
-                                    style: Theme.of(context).textTheme.bodyMedium
-                                        ?.copyWith(color: AppTheme.textSecondary),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const Icon(
-                              Icons.arrow_forward_ios,
-                              size: 20,
-                              color: AppTheme.textSecondary,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),              ),
-              
               // Memories Forum Card
               Padding(
                 padding: const EdgeInsets.all(16.0),
