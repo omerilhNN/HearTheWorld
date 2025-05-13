@@ -1,10 +1,18 @@
+import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:go_router/go_router.dart';
 // import 'package:flutter_gen/gen_l10n/app_localizations.dart'; // Bu importu geçici olarak kaldırıyorum
 import 'package:provider/provider.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:uuid/uuid.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/accessibility_service.dart';
 import '../services/locale_provider.dart';
+import '../services/openai_service.dart';
+import '../utils/permission_helper.dart';
 import '../widgets/accessible_bottom_nav.dart';
 import '../models/chat_models.dart';
 import '../utils/app_theme.dart';
@@ -17,8 +25,12 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // Mock data for previous sessions - in a real app, this would come from storage
-  final List<ChatSession> _recentSessions = [
+  // Tools for photo capture
+  final ImagePicker _imagePicker = ImagePicker();
+  final Uuid _uuid = const Uuid();
+  
+  // Session data - in a real app, this would be stored persistently
+  List<ChatSession> _recentSessions = [
     ChatSession(
       id: '1',
       summary: 'Objects on desk: pen, notebook, coffee mug',
@@ -39,15 +51,21 @@ class _HomeScreenState extends State<HomeScreen> {
     ),
   ];
 
-  // Ses çalma durumunu izleyen değişken
+  // Audio playback tracking variable
   int? _playingSessionId;
   
-  // Dil durumu
+  // Loading state for image analysis
+  bool _isAnalyzing = false;
+  
+  // Language state
   bool _isTurkish = false;
 
   @override
   void initState() {
     super.initState();
+    
+    // Load saved sessions
+    _loadSavedSessions();
     
     // Başlangıçta ekran bildirimi
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -55,6 +73,47 @@ class _HomeScreenState extends State<HomeScreen> {
         'Home screen. Tap the center of the screen to start a new chat.',
       );
     });
+  }
+  
+  // Load saved sessions from SharedPreferences
+  Future<void> _loadSavedSessions() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final savedSessionsJson = prefs.getStringList('recentSessions');
+      
+      if (savedSessionsJson != null && savedSessionsJson.isNotEmpty) {
+        final loadedSessions = savedSessionsJson.map((sessionJson) {
+          return ChatSession.fromJson(jsonDecode(sessionJson));
+        }).toList();
+        
+        setState(() {
+          // Sort sessions by timestamp, most recent first
+          loadedSessions.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+          _recentSessions = loadedSessions;
+        });
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error loading saved sessions: $e');
+      }
+      // If loading fails, keep the default sessions
+    }
+  }
+  
+  // Save sessions to SharedPreferences
+  Future<void> _saveSessions() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final sessionsJson = _recentSessions.map((session) => 
+        jsonEncode(session.toJson())
+      ).toList();
+      
+      await prefs.setStringList('recentSessions', sessionsJson);
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error saving sessions: $e');
+      }
+    }
   }
   
   // didChangeDependencies metodunu ekleyerek dil değişikliklerini izliyoruz
@@ -82,7 +141,8 @@ class _HomeScreenState extends State<HomeScreen> {
       // Provider erişim hatası olursa (örneğin context kullanılamadığında) hatayı yakala
       print('Dil kontrolü sırasında hata: $e');
     }
-  }
+  }  
+  
   void _handleTabChange(int index) {
     switch (index) {
       case 0:
@@ -97,6 +157,88 @@ class _HomeScreenState extends State<HomeScreen> {
       case 3:
         context.go('/settings');
         break;
+    }
+  }
+
+  // Capture photo and analyze with OpenAI
+  Future<void> _captureAndAnalyzePhoto() async {
+    try {
+      // Request camera permission using the permission helper
+      bool hasPermission = await PermissionHelper.requestCameraPermission(context);
+      
+      if (!hasPermission) {
+        AccessibilityService().speak(
+          _isTurkish ? 'Kamera izni gereklidir' : 'Camera permission required'
+        );
+        return;
+      }
+      
+      final XFile? photo = await _imagePicker.pickImage(
+        source: ImageSource.camera,
+        preferredCameraDevice: CameraDevice.rear,
+      );
+      
+      if (photo == null) {
+        // User canceled the camera
+        AccessibilityService().speak(
+          _isTurkish ? 'Fotoğraf çekimi iptal edildi' : 'Photo capture canceled'
+        );
+        return;
+      }
+      
+      // Show loading state
+      setState(() {
+        _isAnalyzing = true;
+      });
+      
+      AccessibilityService().speak(
+        _isTurkish ? 'Fotoğraf analiz ediliyor, lütfen bekleyin' : 'Analyzing photo, please wait'
+      );
+      
+      // Create a File object from the XFile
+      final File imageFile = File(photo.path);
+      
+      // Use OpenAI service to analyze the image
+      final String analysis = await OpenAIService().analyzeImage(imageFile);
+      
+      // Create a new chat session with the analysis
+      final newSession = ChatSession(
+        id: _uuid.v4(),
+        summary: analysis,
+        timestamp: DateTime.now(),
+        messages: [
+          ChatMessage(
+            id: _uuid.v4(),
+            content: analysis,
+            type: MessageType.system,
+            timestamp: DateTime.now(),
+          )
+        ],
+      );
+      
+      // Add the new session to the top of the list
+      setState(() {
+        _recentSessions = [newSession, ..._recentSessions];
+        _isAnalyzing = false;
+      });
+      
+      // Save updated sessions
+      _saveSessions();
+      
+      // Provide audio feedback
+      AccessibilityService().speak(
+        _isTurkish ? 'Fotoğraf analizi tamamlandı' : 'Photo analysis complete'
+      );
+    } catch (e) {
+      setState(() {
+        _isAnalyzing = false;
+      });
+      AccessibilityService().speak(
+        _isTurkish ? 'Fotoğraf analizi sırasında hata oluştu' : 'Error analyzing photo'
+      );
+      if (kDebugMode) {
+        print('Photo capture error: $e');
+      }
     }
   }
 
@@ -217,6 +359,10 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() {
       _recentSessions.removeWhere((session) => session.id == id);
     });
+    
+    // Save the updated sessions list
+    _saveSessions();
+    
     AccessibilityService().speakWithFeedback(
       _isTurkish ? 'Sohbet oturumu silindi' : 'Chat session deleted',
       FeedbackType.success,
@@ -392,8 +538,80 @@ class _HomeScreenState extends State<HomeScreen> {
                             Icon(
                               Icons.arrow_forward_ios,
                               size: 20,
-                              color: AppTheme.textSecondary,
+                              color: AppTheme.textSecondary,                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              // Camera Button - Take Photo Section
+              Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Semantics(
+                  button: true,
+                  label: _isTurkish 
+                      ? 'Fotoğraf çek butonu. Çevrenizdeki nesneleri tanımlamak için dokunun'
+                      : 'Take photo button. Tap to identify objects around you',
+                  child: Card(
+                    color: AppTheme.primaryLightColor,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      side: BorderSide(color: AppTheme.primaryColor.withOpacity(0.5), width: 1),
+                    ),
+                    elevation: 2,
+                    child: InkWell(
+                      onTap: _captureAndAnalyzePhoto,
+                      borderRadius: BorderRadius.circular(16),
+                      child: Container(
+                        width: double.infinity,
+                        height: 100,
+                        padding: const EdgeInsets.all(20),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 56,
+                              height: 56,
+                              decoration: BoxDecoration(
+                                color: AppTheme.primaryColor.withOpacity(0.2),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.camera_alt,
+                                size: 28,
+                                color: AppTheme.primaryColor,
+                              ),
                             ),
+                            const SizedBox(width: 20),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    _isTurkish ? 'Fotoğraf Çek' : 'Take Photo',
+                                    style: Theme.of(context).textTheme.titleLarge,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    _isTurkish 
+                                        ? 'Çevrenizdeki nesneleri tanımlayın'
+                                        : 'Identify objects around you',
+                                    style: Theme.of(context).textTheme.bodyMedium
+                                        ?.copyWith(color: AppTheme.textSecondary),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            _isAnalyzing 
+                              ? const CircularProgressIndicator()
+                              : Icon(
+                                  Icons.arrow_forward_ios,
+                                  size: 20,
+                                  color: AppTheme.textSecondary,
+                                ),
                           ],
                         ),
                       ),
