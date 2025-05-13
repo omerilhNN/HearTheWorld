@@ -11,8 +11,7 @@ class OpenAIService {
   
   // In a real app, this key would be stored securely and not hardcoded
   // For a demo, we're using a placeholder that would need to be replaced
-  final String _apiKey = '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';
-  final String _baseUrl = 'https://api.openai.com/v1';
+  final String _apiKey = '';
 
   /// Analyze an image using OpenAI's Vision API
   /// Returns a description of the image  
