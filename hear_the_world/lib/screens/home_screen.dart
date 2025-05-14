@@ -19,8 +19,7 @@ import '../widgets/accessible_bottom_nav.dart';
 import '../models/chat_models.dart';
 import '../models/forum_models.dart';
 import '../utils/app_theme.dart';
-
-// Gerekli importlar - home_screen.dart dosyasının başına ekleyin
+import '../services/firebase_service.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -42,16 +41,29 @@ class _HomeScreenState extends State<HomeScreen> {
   // Language state
   bool _isTurkish = false;
 
+  // Firebase description state
+  String? _description;
+  final FirebaseService _firebaseService = FirebaseService();
+
   @override
   void initState() {
     super.initState();
-
+    _fetchDescription();
     // Başlangıçta ekran bildirimi
     WidgetsBinding.instance.addPostFrameCallback((_) {
       AccessibilityService().speak(
         'Home screen. Tap the center of the screen to start a new chat.',
       );
     });
+  }
+
+  Future<void> _fetchDescription() async {
+    final description = await _firebaseService.fetchDescription();
+    if (description != null) {
+      setState(() {
+        _description = description;
+      });
+    }
   }
 
   // didChangeDependencies metodunu ekleyerek dil değişikliklerini izliyoruz
@@ -203,8 +215,8 @@ class _HomeScreenState extends State<HomeScreen> {
         // Analiz sonucunu alırken null olabilir durumunu kontrol et
         analysis = await OpenAIService().analyzeImage(imageFile);
 
-        if (analysis == null || analysis.isEmpty) {
-          throw Exception('API returned empty or null result');
+        if (analysis.isEmpty) {
+          throw Exception('API returned empty result');
         }
 
         if (kDebugMode) {
@@ -764,7 +776,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    "",
+                                    _description ?? "",
                                     style: Theme.of(
                                       context,
                                     ).textTheme.bodyMedium?.copyWith(

@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -252,20 +251,9 @@ class _ChatScreenState extends State<ChatScreen> {
       // Use OpenAI service to analyze the image
       String? analysis;
       try {
-        // Bu kısmı base64 kodlamasını kullanarak yapabiliriz
-        final bytes = await imageFile.readAsBytes();
-        final base64Image = base64Encode(bytes);
+        final result = await OpenAIService().analyzeImage(imageFile);
 
-        if (kDebugMode) {
-          print(
-            'Successfully encoded image to base64: ${base64Image.length} characters',
-          );
-        }
-
-        // Base64 kullanarak analiz yapın
-        final result = await OpenAIService().analyzeBase64Image(base64Image);
-
-        if (result == null || result.isEmpty) {
+        if (result.isEmpty) {
           throw Exception('API returned empty result');
         }
 
@@ -319,14 +307,18 @@ class _ChatScreenState extends State<ChatScreen> {
           _messages.removeLast();
         }
 
-        // Add the analysis result
-        _addMessage(analysis!, MessageType.system);
+        if (analysis != null) {
+          // Ensure analysis is non-null
+          _addMessage(analysis, MessageType.system);
+        } else {
+          throw Exception('Analysis result is null');
+        }
       });
 
       // Create a new chat session with the analysis
       final newSession = ChatSession(
         id: _uuid.v4(),
-        summary: analysis!,
+        summary: analysis,
         timestamp: DateTime.now(),
         messages: [
           ChatMessage(
