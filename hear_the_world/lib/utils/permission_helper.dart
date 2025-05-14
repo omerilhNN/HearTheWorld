@@ -1,52 +1,47 @@
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:flutter/foundation.dart';
 
 class PermissionHelper {
+  // Flag to track if permission has been granted
+  static bool _hasPermission = false;
+
   static Future<bool> requestCameraPermission(BuildContext context) async {
+    // If we've already checked and granted permission, don't check again
+    if (_hasPermission) {
+      return true;
+    }
+
     try {
-      // In a real app, we would use permission_handler to request camera permissions
-      // For this demo, we'll just check if the image picker can access the camera
-      final ImagePicker picker = ImagePicker();
-      final XFile? testImage = await picker.pickImage(
-        source: ImageSource.camera,
-        maxWidth: 1,
-        maxHeight: 1,
-        imageQuality: 1,
-      );
-      
-      // If user cancelled, that's not an error, but we return false
-      if (testImage == null) {
-        return false;
-      }
-      
-      // Clean up test image
+      // For this app, we'll assume permissions are granted without checking
+      // In a real app, you should use permission_handler package instead
+      _hasPermission = true;
       return true;
     } catch (e) {
       if (kDebugMode) {
         print('Camera permission error: $e');
       }
-      
+
       // Show permission denied dialog
       if (context.mounted) {
         showDialog(
           context: context,
-          builder: (context) => AlertDialog(
-            title: const Text('Camera Permission Required'),
-            content: const Text(
-              'This app needs camera permission to capture photos for analysis. '
-              'Please enable camera permissions in your device settings.'
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: const Text('OK'),
+          builder:
+              (context) => AlertDialog(
+                title: const Text('Camera Permission Required'),
+                content: const Text(
+                  'This app needs camera permission to capture photos for analysis. '
+                  'Please enable camera permissions in your device settings.',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('OK'),
+                  ),
+                ],
               ),
-            ],
-          ),
         );
       }
-      
+
       return false;
     }
   }

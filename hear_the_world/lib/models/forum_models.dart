@@ -12,6 +12,8 @@ class ForumMemory {
   final int likeCount;
   final int commentCount;
   final List<ForumComment> comments;
+  final String? imageUrl;
+  final String? imageDescription;
 
   ForumMemory({
     String? id,
@@ -24,14 +26,17 @@ class ForumMemory {
     int? likeCount,
     int? commentCount,
     List<ForumComment>? comments,
-  })  : id = id ?? const Uuid().v4(),
-        timestamp = timestamp ?? DateTime.now(),
-        likeCount = likeCount ?? 0,
-        commentCount = commentCount ?? 0,
-        comments = comments ?? [];
+    this.imageUrl,
+    this.imageDescription,
+  }) : id = id ?? const Uuid().v4(),
+       timestamp = timestamp ?? DateTime.now(),
+       likeCount = likeCount ?? 0,
+       commentCount = commentCount ?? 0,
+       comments = comments ?? [];
 
-  String get formattedDate => DateFormat('MMM dd, yyyy • HH:mm').format(timestamp);
-  
+  String get formattedDate =>
+      DateFormat('MMM dd, yyyy • HH:mm').format(timestamp);
+
   String get formattedDuration {
     if (durationSeconds == null) return '';
     final minutes = (durationSeconds! ~/ 60).toString().padLeft(2, '0');
@@ -39,9 +44,21 @@ class ForumMemory {
     return '$minutes:$seconds';
   }
 
-  String get accessibilityLabel => 
-      'Memory: $title by $authorName, posted on ${DateFormat('MMMM dd, yyyy').format(timestamp)}. '
-      '${description.length > 100 ? description.substring(0, 100) + "..." : description}';
+  String get accessibilityLabel {
+    String label =
+        'Memory: $title by $authorName, posted on ${DateFormat('MMMM dd, yyyy').format(timestamp)}. ';
+
+    // Add image information if available
+    if (imageDescription != null && imageDescription!.isNotEmpty) {
+      label += 'Contains image: $imageDescription. ';
+    }
+
+    // Add description (truncated if too long)
+    label +=
+        '${description.length > 100 ? description.substring(0, 100) + "..." : description}';
+
+    return label;
+  }
 
   Map<String, dynamic> toJson() {
     return {
@@ -55,6 +72,8 @@ class ForumMemory {
       'likeCount': likeCount,
       'commentCount': commentCount,
       'comments': comments.map((comment) => comment.toJson()).toList(),
+      'imageUrl': imageUrl,
+      'imageDescription': imageDescription,
     };
   }
 
@@ -69,13 +88,15 @@ class ForumMemory {
       durationSeconds: json['durationSeconds'],
       likeCount: json['likeCount'],
       commentCount: json['commentCount'],
-      comments: (json['comments'] as List?)
+      comments:
+          (json['comments'] as List?)
               ?.map((commentJson) => ForumComment.fromJson(commentJson))
               .toList() ??
           [],
+      imageUrl: json['imageUrl'],
+      imageDescription: json['imageDescription'],
     );
   }
-
   ForumMemory copyWith({
     String? title,
     String? description,
@@ -85,6 +106,8 @@ class ForumMemory {
     int? likeCount,
     int? commentCount,
     List<ForumComment>? comments,
+    String? imageUrl,
+    String? imageDescription,
   }) {
     return ForumMemory(
       id: id,
@@ -97,6 +120,8 @@ class ForumMemory {
       likeCount: likeCount ?? this.likeCount,
       commentCount: commentCount ?? this.commentCount,
       comments: comments ?? List.from(this.comments),
+      imageUrl: imageUrl ?? this.imageUrl,
+      imageDescription: imageDescription ?? this.imageDescription,
     );
   }
 }
@@ -114,10 +139,11 @@ class ForumComment {
     required this.authorName,
     DateTime? timestamp,
     this.audioUrl,
-  })  : id = id ?? const Uuid().v4(),
-        timestamp = timestamp ?? DateTime.now();
+  }) : id = id ?? const Uuid().v4(),
+       timestamp = timestamp ?? DateTime.now();
 
-  String get formattedDate => DateFormat('MMM dd, yyyy • HH:mm').format(timestamp);
+  String get formattedDate =>
+      DateFormat('MMM dd, yyyy • HH:mm').format(timestamp);
 
   Map<String, dynamic> toJson() {
     return {

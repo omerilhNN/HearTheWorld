@@ -1,21 +1,26 @@
 import 'dart:io';
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+
 // import 'package:flutter_gen/gen_l10n/app_localizations.dart'; // Bu importu geçici olarak kaldırıyorum
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:uuid/uuid.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/accessibility_service.dart';
 import '../services/locale_provider.dart';
 import '../services/openai_service.dart';
+import '../services/session_manager.dart';
+import '../services/forum_service.dart';
 import '../utils/permission_helper.dart';
 import '../widgets/accessible_bottom_nav.dart';
 import '../models/chat_models.dart';
+import '../models/forum_models.dart';
 import '../utils/app_theme.dart';
+
+// Gerekli importlar - home_screen.dart dosyasının başına ekleyin
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -28,45 +33,19 @@ class _HomeScreenState extends State<HomeScreen> {
   // Tools for photo capture
   final ImagePicker _imagePicker = ImagePicker();
   final Uuid _uuid = const Uuid();
-  
-  // Session data - in a real app, this would be stored persistently
-  List<ChatSession> _recentSessions = [
-    ChatSession(
-      id: '1',
-      summary: 'Objects on desk: pen, notebook, coffee mug',
-      timestamp: DateTime.now().subtract(const Duration(days: 1)),
-      messages: [],
-    ),
-    ChatSession(
-      id: '2',
-      summary: 'Kitchen items: plate with sandwich, apple, glass of water',
-      timestamp: DateTime.now().subtract(const Duration(days: 2)),
-      messages: [],
-    ),
-    ChatSession(
-      id: '3',
-      summary: 'Living room: TV remote, books on shelf, reading glasses',
-      timestamp: DateTime.now().subtract(const Duration(days: 3)),
-      messages: [],
-    ),
-  ];
-
   // Audio playback tracking variable
   int? _playingSessionId;
-  
+
   // Loading state for image analysis
   bool _isAnalyzing = false;
-  
+
   // Language state
   bool _isTurkish = false;
 
   @override
   void initState() {
     super.initState();
-    
-    // Load saved sessions
-    _loadSavedSessions();
-    
+
     // Başlangıçta ekran bildirimi
     WidgetsBinding.instance.addPostFrameCallback((_) {
       AccessibilityService().speak(
@@ -74,48 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     });
   }
-  
-  // Load saved sessions from SharedPreferences
-  Future<void> _loadSavedSessions() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final savedSessionsJson = prefs.getStringList('recentSessions');
-      
-      if (savedSessionsJson != null && savedSessionsJson.isNotEmpty) {
-        final loadedSessions = savedSessionsJson.map((sessionJson) {
-          return ChatSession.fromJson(jsonDecode(sessionJson));
-        }).toList();
-        
-        setState(() {
-          // Sort sessions by timestamp, most recent first
-          loadedSessions.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-          _recentSessions = loadedSessions;
-        });
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error loading saved sessions: $e');
-      }
-      // If loading fails, keep the default sessions
-    }
-  }
-  
-  // Save sessions to SharedPreferences
-  Future<void> _saveSessions() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final sessionsJson = _recentSessions.map((session) => 
-        jsonEncode(session.toJson())
-      ).toList();
-      
-      await prefs.setStringList('recentSessions', sessionsJson);
-    } catch (e) {
-      if (kDebugMode) {
-        print('Error saving sessions: $e');
-      }
-    }
-  }
-  
+
   // didChangeDependencies metodunu ekleyerek dil değişikliklerini izliyoruz
   @override
   void didChangeDependencies() {
@@ -123,14 +61,17 @@ class _HomeScreenState extends State<HomeScreen> {
     // Bu metod hem initState'den sonra hem de context bağımlı değişiklikler olduğunda çağrılır
     _updateLanguageState();
   }
-  
+
   // Dil durumunu güncelleme metodu
   void _updateLanguageState() {
     try {
-      final localeProvider = Provider.of<LocaleProvider>(context, listen: false);
+      final localeProvider = Provider.of<LocaleProvider>(
+        context,
+        listen: false,
+      );
       final languageCode = localeProvider.locale.languageCode;
       final isTurkish = languageCode == 'tr';
-      
+
       // Eğer _isTurkish değeri değiştiyse state'i güncelleyelim
       if (_isTurkish != isTurkish) {
         setState(() {
@@ -141,8 +82,8 @@ class _HomeScreenState extends State<HomeScreen> {
       // Provider erişim hatası olursa (örneğin context kullanılamadığında) hatayı yakala
       print('Dil kontrolü sırasında hata: $e');
     }
-  }  
-  
+  }
+
   void _handleTabChange(int index) {
     switch (index) {
       case 0:
@@ -164,77 +105,208 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _captureAndAnalyzePhoto() async {
     try {
       // Request camera permission using the permission helper
-      bool hasPermission = await PermissionHelper.requestCameraPermission(context);
-      
+      bool hasPermission = await PermissionHelper.requestCameraPermission(
+        context,
+      );
+
       if (!hasPermission) {
         AccessibilityService().speak(
-          _isTurkish ? 'Kamera izni gereklidir' : 'Camera permission required'
+          _isTurkish ? 'Kamera izni gereklidir' : 'Camera permission required',
         );
         return;
       }
-      
-      final XFile? photo = await _imagePicker.pickImage(
-        source: ImageSource.camera,
-        preferredCameraDevice: CameraDevice.rear,
-      );
-      
-      if (photo == null) {
-        // User canceled the camera
-        AccessibilityService().speak(
-          _isTurkish ? 'Fotoğraf çekimi iptal edildi' : 'Photo capture canceled'
-        );
-        return;
-      }
-      
-      // Show loading state
+
+      // Set analyzing state before launching camera to prevent UI glitches
       setState(() {
         _isAnalyzing = true;
       });
-      
+
+      // Show a message to the user that the camera is opening
       AccessibilityService().speak(
-        _isTurkish ? 'Fotoğraf analiz ediliyor, lütfen bekleyin' : 'Analyzing photo, please wait'
+        _isTurkish ? 'Kamera açılıyor' : 'Opening camera',
       );
-      
+
+      // Capture photo with camera
+      XFile? photo;
+      try {
+        photo = await _imagePicker.pickImage(
+          source: ImageSource.camera,
+          preferredCameraDevice: CameraDevice.rear,
+        );
+      } catch (cameraError) {
+        // Handle camera errors
+        setState(() {
+          _isAnalyzing = false;
+        });
+        AccessibilityService().speak(
+          _isTurkish
+              ? 'Kamera ile ilgili bir hata oluştu'
+              : 'Camera error occurred',
+        );
+        if (kDebugMode) {
+          print('Camera error: $cameraError');
+        }
+        return;
+      }
+
+      // Check if user canceled the photo
+      if (photo == null) {
+        setState(() {
+          _isAnalyzing = false;
+        });
+        AccessibilityService().speak(
+          _isTurkish
+              ? 'Fotoğraf çekimi iptal edildi'
+              : 'Photo capture canceled',
+        );
+        return;
+      }
+
+      // Camera has been successfully used, inform user that analysis is now happening
+      AccessibilityService().speak(
+        _isTurkish
+            ? 'Fotoğraf analiz ediliyor, lütfen bekleyin'
+            : 'Analyzing photo, please wait',
+      );
+
       // Create a File object from the XFile
-      final File imageFile = File(photo.path);
-      
+      File imageFile;
+      try {
+        imageFile = File(photo.path);
+
+        if (!await imageFile.exists()) {
+          throw Exception('Image file does not exist');
+        }
+
+        // Kontrol amaçlı dosya bilgilerini yazdır
+        print('Image file path: ${imageFile.path}');
+        print('Image file size: ${await imageFile.length()} bytes');
+        print('Image exists: ${await imageFile.exists()}');
+      } catch (fileError) {
+        setState(() {
+          _isAnalyzing = false;
+        });
+        AccessibilityService().speak(
+          _isTurkish
+              ? 'Dosya işleme hatası oluştu'
+              : 'File processing error occurred',
+        );
+        if (kDebugMode) {
+          print('File error: $fileError');
+        }
+        return;
+      }
+
       // Use OpenAI service to analyze the image
-      final String analysis = await OpenAIService().analyzeImage(imageFile);
-      
+      String? analysis;
+      try {
+        // Analiz sonucunu alırken null olabilir durumunu kontrol et
+        analysis = await OpenAIService().analyzeImage(imageFile);
+
+        if (analysis == null || analysis.isEmpty) {
+          throw Exception('API returned empty or null result');
+        }
+
+        if (kDebugMode) {
+          print('Received analysis from API: $analysis');
+        }
+      } catch (aiError) {
+        setState(() {
+          _isAnalyzing = false;
+        });
+        AccessibilityService().speak(
+          _isTurkish
+              ? 'Görsel analiz hatası oluştu'
+              : 'Image analysis error occurred',
+        );
+        if (kDebugMode) {
+          print('AI analysis error: $aiError');
+        }
+
+        // Kullanıcıya hata mesajını göster
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _isTurkish
+                  ? 'Görsel analizi yapılamadı: $aiError'
+                  : 'Failed to analyze image: $aiError',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return;
+      }
+
       // Create a new chat session with the analysis
+      final sessionId = _uuid.v4();
       final newSession = ChatSession(
-        id: _uuid.v4(),
-        summary: analysis,
+        id: sessionId,
+        summary: analysis, // API'den gelen gerçek analiz sonucu
         timestamp: DateTime.now(),
+        imageUrl: imageFile.path, // Store the image path for reference
         messages: [
           ChatMessage(
             id: _uuid.v4(),
-            content: analysis,
+            content: analysis, // API'den gelen gerçek analiz sonucu
             type: MessageType.system,
             timestamp: DateTime.now(),
-          )
+          ),
         ],
       );
-      
-      // Add the new session to the top of the list
+
+      // Add session using the SessionManager
+      try {
+        await Provider.of<SessionManager>(
+          context,
+          listen: false,
+        ).addSession(newSession);
+        print('Session added successfully: ${newSession.id}');
+      } catch (e) {
+        print('Error adding session: $e');
+      }
+
+      // Also add this as a memory to the forum so it appears on the main screen
+      try {
+        final forumMemory = ForumMemory(
+          title: _isTurkish ? 'Fotoğraf Analizi' : 'Photo Analysis',
+          description: analysis, // API'den gelen gerçek analiz sonucu
+          authorName: _isTurkish ? 'Sistem' : 'System',
+          imageUrl: imageFile.path,
+          imageDescription:
+              _isTurkish
+                  ? 'Kamera ile çekilmiş fotoğraf'
+                  : 'Photo taken with camera',
+        );
+
+        await ForumService().addMemory(forumMemory);
+        print('Memory added to forum successfully');
+      } catch (e) {
+        print('Error adding memory to forum: $e');
+      }
+
+      // Update UI
       setState(() {
-        _recentSessions = [newSession, ..._recentSessions];
         _isAnalyzing = false;
       });
-      
-      // Save updated sessions
-      _saveSessions();
-      
+
       // Provide audio feedback
       AccessibilityService().speak(
-        _isTurkish ? 'Fotoğraf analizi tamamlandı' : 'Photo analysis complete'
+        _isTurkish ? 'Fotoğraf analizi tamamlandı' : 'Photo analysis complete',
       );
+
+      // Session detaylarını göstermek için ekranı güncelle
+      if (mounted) {
+        setState(() {}); // UI'ı yenile
+      }
     } catch (e) {
+      // General error handler - this should catch any errors not handled in specific try-catch blocks
       setState(() {
         _isAnalyzing = false;
       });
       AccessibilityService().speak(
-        _isTurkish ? 'Fotoğraf analizi sırasında hata oluştu' : 'Error analyzing photo'
+        _isTurkish
+            ? 'Fotoğraf analizi sırasında hata oluştu'
+            : 'Error analyzing photo',
       );
       if (kDebugMode) {
         print('Photo capture error: $e');
@@ -245,14 +317,35 @@ class _HomeScreenState extends State<HomeScreen> {
   void _playAudio(ChatSession session) {
     setState(() {
       if (_playingSessionId == int.tryParse(session.id)) {
-        // Eğer bu session zaten çalıyorsa, durdur
+        // If this session is already playing, stop it
         _playingSessionId = null;
         AccessibilityService().stopSpeaking();
-        AccessibilityService().speak(_isTurkish ? 'Ses durduruldu' : 'Audio stopped');
+        AccessibilityService().speak(
+          _isTurkish ? 'Ses durduruldu' : 'Audio stopped',
+        );
       } else {
-        // Yeni sesli anlatımı başlat
+        // Stop any currently playing audio first
+        if (_playingSessionId != null) {
+          AccessibilityService().stopSpeaking();
+        }
+
+        // Start a new audio playback
         _playingSessionId = int.tryParse(session.id);
-        AccessibilityService().speak(session.summary);
+
+        // Make sure we have a valid text to speak
+        String textToSpeak = session.summary;
+        if (textToSpeak.isEmpty) {
+          textToSpeak =
+              _isTurkish
+                  ? 'Bu oturum için metin bulunamadı'
+                  : 'No text found for this session';
+        }
+
+        // Start speaking the text
+        AccessibilityService().speak(textToSpeak);
+
+        // Provide haptic feedback for better user experience
+        HapticFeedback.mediumImpact();
       }
     });
   }
@@ -294,6 +387,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           icon: const Icon(Icons.close),
                           onPressed: () {
                             Navigator.pop(context);
+                            AccessibilityService().speak(
+                              _isTurkish
+                                  ? 'Detaylar kapatıldı'
+                                  : 'Details closed',
+                            );
                           },
                         ),
                       ],
@@ -320,6 +418,45 @@ class _HomeScreenState extends State<HomeScreen> {
                       session.summary,
                       style: TextStyle(fontSize: AppTheme.regularTextSize),
                     ),
+
+                    // Display image if available
+                    if (session.imageUrl != null)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _isTurkish ? 'Görsel' : 'Image',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            const SizedBox(height: 8),
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.file(
+                                File(session.imageUrl!),
+                                height: 200,
+                                fit: BoxFit.cover,
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Container(
+                                    height: 200,
+                                    width: double.infinity,
+                                    color: Colors.grey[300],
+                                    child: Center(
+                                      child: Icon(
+                                        Icons.image_not_supported,
+                                        size: 40,
+                                        color: Colors.grey[600],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
                     const SizedBox(height: 24),
 
                     // Buttons
@@ -328,19 +465,100 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         ElevatedButton.icon(
                           onPressed: () => _playAudio(session),
-                          icon: const Icon(Icons.volume_up),
-                          label: Text(_isTurkish ? 'Sesi Oynat' : 'Play Audio'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor:
+                                _playingSessionId == int.tryParse(session.id)
+                                    ? Colors.red.shade50
+                                    : null,
+                          ),
+                          icon: Icon(
+                            _playingSessionId == int.tryParse(session.id)
+                                ? Icons.stop
+                                : Icons.volume_up,
+                          ),
+                          label: Text(
+                            _playingSessionId == int.tryParse(session.id)
+                                ? (_isTurkish ? 'Durdur' : 'Stop')
+                                : (_isTurkish ? 'Sesi Oynat' : 'Play Audio'),
+                          ),
                         ),
                         ElevatedButton.icon(
-                          onPressed: () {
-                            AccessibilityService().speak(
-                              _isTurkish 
-                                ? 'Bu demoda görsel görüntüleme özelliği mevcut değil' 
-                                : 'View image feature not implemented in this demo',
-                            );
-                          },
+                          onPressed:
+                              session.imageUrl != null
+                                  ? () {
+                                    // Show the image in a full-screen dialog
+                                    showDialog(
+                                      context: context,
+                                      builder:
+                                          (context) => Dialog(
+                                            insetPadding: const EdgeInsets.all(
+                                              10,
+                                            ),
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                AppBar(
+                                                  title: Text(
+                                                    _isTurkish
+                                                        ? 'Fotoğraf'
+                                                        : 'Photo',
+                                                  ),
+                                                  leading: IconButton(
+                                                    icon: const Icon(
+                                                      Icons.close,
+                                                    ),
+                                                    onPressed:
+                                                        () => Navigator.pop(
+                                                          context,
+                                                        ),
+                                                  ),
+                                                ),
+                                                Flexible(
+                                                  child: InteractiveViewer(
+                                                    child: Image.file(
+                                                      File(session.imageUrl!),
+                                                      fit: BoxFit.contain,
+                                                      errorBuilder: (
+                                                        context,
+                                                        error,
+                                                        stackTrace,
+                                                      ) {
+                                                        return Center(
+                                                          child: Column(
+                                                            mainAxisSize:
+                                                                MainAxisSize
+                                                                    .min,
+                                                            children: [
+                                                              const Icon(
+                                                                Icons
+                                                                    .broken_image,
+                                                                size: 48,
+                                                              ),
+                                                              const SizedBox(
+                                                                height: 16,
+                                                              ),
+                                                              Text(
+                                                                _isTurkish
+                                                                    ? 'Görsel yüklenemedi'
+                                                                    : 'Image could not be loaded',
+                                                              ),
+                                                            ],
+                                                          ),
+                                                        );
+                                                      },
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                    );
+                                  }
+                                  : null, // Disable button if no image
                           icon: const Icon(Icons.image),
-                          label: Text(_isTurkish ? 'Görseli Görüntüle' : 'View Image'),
+                          label: Text(
+                            _isTurkish ? 'Görseli Görüntüle' : 'View Image',
+                          ),
                         ),
                       ],
                     ),
@@ -355,14 +573,9 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _deleteSession(String id) {
-    // In a real app, this would delete from storage
-    setState(() {
-      _recentSessions.removeWhere((session) => session.id == id);
-    });
-    
-    // Save the updated sessions list
-    _saveSessions();
-    
+    // Delete using SessionManager
+    Provider.of<SessionManager>(context, listen: false).deleteSession(id);
+
     AccessibilityService().speakWithFeedback(
       _isTurkish ? 'Sohbet oturumu silindi' : 'Chat session deleted',
       FeedbackType.success,
@@ -372,11 +585,12 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     // Provider değişikliklerini otomatik algılamak için Consumer kullanıyoruz
-    return Consumer<LocaleProvider>(
-      builder: (context, localeProvider, _) {
+    return Consumer2<LocaleProvider, SessionManager>(
+      builder: (context, localeProvider, sessionManager, _) {
         // Değişikliği kontrol ediyoruz
         final isTurkish = localeProvider.locale.languageCode == 'tr';
-        
+        final recentSessions = sessionManager.sessions;
+
         // _isTurkish değişkenini güncelleyelim (build içinde setState çağırmıyoruz)
         if (_isTurkish != isTurkish) {
           // Frame bitince güncelleme yapalım
@@ -386,19 +600,22 @@ class _HomeScreenState extends State<HomeScreen> {
             });
           });
         }
-        
+
         return Scaffold(
           appBar: AppBar(
             title: Text(_isTurkish ? 'Ana Sayfa' : 'Home'),
             leading: Builder(
-              builder: (context) => IconButton(
-                icon: const Icon(Icons.menu),
-                onPressed: () {
-                  Scaffold.of(context).openDrawer();
-                  AccessibilityService().speak(_isTurkish ? 'Menü açıldı' : 'Menu opened');
-                },
-                tooltip: _isTurkish ? 'Menüyü aç' : 'Open menu',
-              ),
+              builder:
+                  (context) => IconButton(
+                    icon: const Icon(Icons.menu),
+                    onPressed: () {
+                      Scaffold.of(context).openDrawer();
+                      AccessibilityService().speak(
+                        _isTurkish ? 'Menü açıldı' : 'Menu opened',
+                      );
+                    },
+                    tooltip: _isTurkish ? 'Menüyü aç' : 'Open menu',
+                  ),
             ),
           ),
           drawer: Drawer(
@@ -411,32 +628,44 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.hearing, color: Colors.white, size: 48),
+                        const Icon(
+                          Icons.hearing,
+                          color: Colors.white,
+                          size: 48,
+                        ),
                         const SizedBox(height: 12),
                         Text(
                           _isTurkish ? 'Dünyayı Duy' : 'Hear The World',
-                          style: Theme.of(
-                            context,
-                          ).textTheme.headlineMedium?.copyWith(color: Colors.white),
+                          style: Theme.of(context).textTheme.headlineMedium
+                              ?.copyWith(color: Colors.white),
                         ),
                       ],
                     ),
-                  ),                  ListTile(
+                  ),
+                  ListTile(
                     leading: const Icon(Icons.settings),
                     title: Text(_isTurkish ? 'Ayarlar' : 'Settings'),
                     onTap: () {
                       Navigator.pop(context);
                       context.go('/settings');
-                      AccessibilityService().speak(_isTurkish ? 'Ayarlar ekranı' : 'Settings screen');
+                      AccessibilityService().speak(
+                        _isTurkish ? 'Ayarlar ekranı' : 'Settings screen',
+                      );
                     },
                   ),
                   ListTile(
                     leading: const Icon(Icons.forum),
-                    title: Text(_isTurkish ? 'Anılar Forumu' : 'Memories Forum'),
+                    title: Text(
+                      _isTurkish ? 'Anılar Forumu' : 'Memories Forum',
+                    ),
                     onTap: () {
                       Navigator.pop(context);
                       context.go('/forum');
-                      AccessibilityService().speak(_isTurkish ? 'Anılar forumu ekranı' : 'Memories forum screen');
+                      AccessibilityService().speak(
+                        _isTurkish
+                            ? 'Anılar forumu ekranı'
+                            : 'Memories forum screen',
+                      );
                     },
                   ),
                   ListTile(
@@ -445,7 +674,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     onTap: () {
                       Navigator.pop(context);
                       AccessibilityService().speak(
-                        _isTurkish 
+                        _isTurkish
                             ? 'Bu uygulama hakkında. Dünyayı Duy, görsel içerikleri sese çevirerek görme engelli kullanıcıların çevrelerini anlamalarına yardımcı olan bir uygulamadır.'
                             : 'About this application. Hear The World is a visual-to-speech app that helps visually impaired users understand their surroundings.',
                       );
@@ -476,7 +705,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: GestureDetector(
                   onTap: () {
                     AccessibilityService().speakWithFeedback(
-                      _isTurkish 
+                      _isTurkish
                           ? 'Forum ekranına gidiliyor. Görme engelli kullanıcıların paylaştığı anıları dinleyebilirsiniz.'
                           : 'Going to forum screen. Listen to memories shared by visually impaired users.',
                       FeedbackType.info,
@@ -485,14 +714,18 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                   child: Semantics(
                     button: true,
-                    label: _isTurkish 
-                        ? 'Anılar Forumu. Görme engelli kullanıcıların paylaştığı anıları dinlemek için dokunun'
-                        : 'Memories Forum. Tap to listen to memories shared by visually impaired users',
+                    label:
+                        _isTurkish
+                            ? 'Anılar Forumu. Görme engelli kullanıcıların paylaştığı anıları dinlemek için dokunun'
+                            : 'Memories Forum. Tap to listen to memories shared by visually impaired users',
                     child: Card(
                       color: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(16),
-                        side: BorderSide(color: AppTheme.accentColor.withOpacity(0.3), width: 1),
+                        side: BorderSide(
+                          color: AppTheme.accentColor.withOpacity(0.3),
+                          width: 1,
+                        ),
                       ),
                       elevation: 2,
                       child: Container(
@@ -505,7 +738,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               width: 56,
                               height: 56,
                               decoration: BoxDecoration(
-                                color: AppTheme.accentLightColor.withOpacity(0.2),
+                                color: AppTheme.accentLightColor.withOpacity(
+                                  0.2,
+                                ),
                                 shape: BoxShape.circle,
                               ),
                               child: Icon(
@@ -521,16 +756,20 @@ class _HomeScreenState extends State<HomeScreen> {
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Text(
-                                    _isTurkish ? 'Anılar Forumu' : 'Memories Forum',
-                                    style: Theme.of(context).textTheme.titleLarge,
+                                    _isTurkish
+                                        ? 'Anılar Forumu'
+                                        : 'Memories Forum',
+                                    style:
+                                        Theme.of(context).textTheme.titleLarge,
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    _isTurkish 
-                                        ? 'Görme engelli kullanıcıların anılarını dinleyin'
-                                        : 'Listen to memories from visually impaired users',
-                                    style: Theme.of(context).textTheme.bodyMedium
-                                        ?.copyWith(color: AppTheme.textSecondary),
+                                    "",
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodyMedium?.copyWith(
+                                      color: AppTheme.textSecondary,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -538,7 +777,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             Icon(
                               Icons.arrow_forward_ios,
                               size: 20,
-                              color: AppTheme.textSecondary,                            ),
+                              color: AppTheme.textSecondary,
+                            ),
                           ],
                         ),
                       ),
@@ -552,14 +792,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 padding: const EdgeInsets.all(16.0),
                 child: Semantics(
                   button: true,
-                  label: _isTurkish 
-                      ? 'Fotoğraf çek butonu. Çevrenizdeki nesneleri tanımlamak için dokunun'
-                      : 'Take photo button. Tap to identify objects around you',
+                  label:
+                      _isTurkish
+                          ? 'Fotoğraf çek butonu. Çevrenizdeki nesneleri tanımlamak için dokunun'
+                          : 'Take photo button. Tap to identify objects around you',
                   child: Card(
                     color: AppTheme.primaryLightColor,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
-                      side: BorderSide(color: AppTheme.primaryColor.withOpacity(0.5), width: 1),
+                      side: BorderSide(
+                        color: AppTheme.primaryColor.withOpacity(0.5),
+                        width: 1,
+                      ),
                     ),
                     elevation: 2,
                     child: InkWell(
@@ -592,22 +836,24 @@ class _HomeScreenState extends State<HomeScreen> {
                                 children: [
                                   Text(
                                     _isTurkish ? 'Fotoğraf Çek' : 'Take Photo',
-                                    style: Theme.of(context).textTheme.titleLarge,
+                                    style:
+                                        Theme.of(context).textTheme.titleLarge,
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    _isTurkish 
-                                        ? 'Çevrenizdeki nesneleri tanımlayın'
-                                        : 'Identify objects around you',
-                                    style: Theme.of(context).textTheme.bodyMedium
-                                        ?.copyWith(color: AppTheme.textSecondary),
+                                    "",
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.bodyMedium?.copyWith(
+                                      color: AppTheme.textSecondary,
+                                    ),
                                   ),
                                 ],
                               ),
                             ),
-                            _isAnalyzing 
-                              ? const CircularProgressIndicator()
-                              : Icon(
+                            _isAnalyzing
+                                ? const CircularProgressIndicator()
+                                : Icon(
                                   Icons.arrow_forward_ios,
                                   size: 20,
                                   color: AppTheme.textSecondary,
@@ -622,7 +868,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
               // Previous Prompts Section Title
               Padding(
-                padding: const EdgeInsets.only(left: 16, right: 16, top: 8, bottom: 8),
+                padding: const EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 8,
+                  bottom: 8,
+                ),
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
@@ -630,31 +881,36 @@ class _HomeScreenState extends State<HomeScreen> {
                     style: Theme.of(context).textTheme.headlineMedium,
                   ),
                 ),
-              ),
-
-              // Previous Prompts List - Alt Alta Düzenlenmiş
-              if (_recentSessions.isEmpty)
+              ), // Previous Prompts List - Alt Alta Düzenlenmiş
+              if (recentSessions.isEmpty)
                 Padding(
                   padding: const EdgeInsets.all(16.0),
-                  child: Text(_isTurkish ? 'Henüz oturum geçmişi yok' : 'No previous sessions yet'),
+                  child: Text(
+                    _isTurkish
+                        ? 'Henüz oturum geçmişi yok'
+                        : 'No previous sessions yet',
+                  ),
                 )
               else
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16.0),
                     child: ListView.separated(
-                      itemCount: _recentSessions.length,
-                      separatorBuilder: (context, index) => const SizedBox(height: 12.0),
+                      itemCount: recentSessions.length,
+                      separatorBuilder:
+                          (context, index) => const SizedBox(height: 12.0),
                       padding: const EdgeInsets.only(bottom: 16.0),
                       itemBuilder: (context, index) {
-                        final session = _recentSessions[index];
-                        final bool isPlaying = _playingSessionId == int.tryParse(session.id);
-                        
+                        final session = recentSessions[index];
+                        final bool isPlaying =
+                            _playingSessionId == int.tryParse(session.id);
+
                         return Semantics(
                           button: true,
-                          label: _isTurkish 
-                              ? 'Önceki oturum: ${session.formattedDate}. ${session.summary}'
-                              : 'Previous session from ${session.formattedDate}. ${session.summary}',
+                          label:
+                              _isTurkish
+                                  ? 'Önceki oturum: ${session.formattedDate}. ${session.summary}'
+                                  : 'Previous session from ${session.formattedDate}. ${session.summary}',
                           child: Card(
                             margin: EdgeInsets.zero,
                             elevation: 2.0,
@@ -670,14 +926,19 @@ class _HomeScreenState extends State<HomeScreen> {
                                   Padding(
                                     padding: const EdgeInsets.all(16.0),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
                                           children: [
                                             // Tarih başlığı
                                             Text(
-                                              session.formattedDate.split('•').first.trim(),
+                                              session.formattedDate
+                                                  .split('•')
+                                                  .first
+                                                  .trim(),
                                               style: TextStyle(
                                                 fontSize: 14,
                                                 fontWeight: FontWeight.w600,
@@ -686,7 +947,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                             ),
                                             // Saat gösterimi
                                             Text(
-                                              session.formattedDate.split('•').last.trim(),
+                                              session.formattedDate
+                                                  .split('•')
+                                                  .last
+                                                  .trim(),
                                               style: TextStyle(
                                                 fontSize: 14,
                                                 color: AppTheme.textSecondary,
@@ -705,6 +969,57 @@ class _HomeScreenState extends State<HomeScreen> {
                                           maxLines: 2,
                                           overflow: TextOverflow.ellipsis,
                                         ),
+
+                                        // Show image thumbnail if available
+                                        if (session.imageUrl != null)
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 8.0,
+                                            ),
+                                            child: Row(
+                                              children: [
+                                                ClipRRect(
+                                                  borderRadius:
+                                                      BorderRadius.circular(4),
+                                                  child: Image.file(
+                                                    File(session.imageUrl!),
+                                                    height: 40,
+                                                    width: 40,
+                                                    fit: BoxFit.cover,
+                                                    errorBuilder: (
+                                                      context,
+                                                      error,
+                                                      stackTrace,
+                                                    ) {
+                                                      return Container(
+                                                        height: 40,
+                                                        width: 40,
+                                                        color: Colors.grey[300],
+                                                        child: const Icon(
+                                                          Icons
+                                                              .image_not_supported,
+                                                          size: 20,
+                                                          color: Colors.grey,
+                                                        ),
+                                                      );
+                                                    },
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Text(
+                                                  _isTurkish
+                                                      ? 'Görsel içerir'
+                                                      : 'Contains image',
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    color:
+                                                        AppTheme.textSecondary,
+                                                    fontStyle: FontStyle.italic,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
                                       ],
                                     ),
                                   ),
@@ -718,30 +1033,67 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ),
                                     ),
                                     child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
                                       children: [
-                                        // Ses butonu
-                                        IconButton(
+                                        // Audio button
+                                        TextButton.icon(
                                           onPressed: () => _playAudio(session),
-                                          icon: Icon(
-                                            isPlaying ? Icons.stop : Icons.volume_up,
-                                            color: isPlaying ? Colors.blue : Colors.grey.shade700,
+                                          style: TextButton.styleFrom(
+                                            backgroundColor:
+                                                isPlaying
+                                                    ? Colors.blue.shade50
+                                                    : Colors.transparent,
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 12.0,
+                                              vertical: 6.0,
+                                            ),
                                           ),
-                                          tooltip: isPlaying 
-                                              ? (_isTurkish ? 'Sesi durdur' : 'Stop audio')
-                                              : (_isTurkish ? 'Sesi oynat' : 'Play audio'),
+                                          icon: Icon(
+                                            isPlaying
+                                                ? Icons.stop
+                                                : Icons.volume_up,
+                                            color:
+                                                isPlaying
+                                                    ? Colors.blue
+                                                    : Colors.grey.shade700,
+                                            size: 18,
+                                          ),
+                                          label: Text(
+                                            isPlaying
+                                                ? 'Stop'
+                                                : (_isTurkish
+                                                    ? 'Dinle'
+                                                    : 'Listen'),
+                                            style: TextStyle(
+                                              color:
+                                                  isPlaying
+                                                      ? Colors.blue
+                                                      : Colors.grey.shade700,
+                                              fontWeight: FontWeight.w500,
+                                              fontSize: 12,
+                                            ),
+                                          ),
                                         ),
                                         // Silme butonu
                                         IconButton(
-                                          icon: const Icon(Icons.delete, color: Colors.red),
-                                          tooltip: _isTurkish ? 'Sil' : 'Delete',
-                                          onPressed: () => _deleteSession(session.id),
+                                          icon: const Icon(
+                                            Icons.delete,
+                                            color: Colors.red,
+                                          ),
+                                          tooltip:
+                                              _isTurkish ? 'Sil' : 'Delete',
+                                          onPressed:
+                                              () => _deleteSession(session.id),
                                         ),
                                         // Detay butonu
                                         TextButton.icon(
-                                          onPressed: () => _openSessionDetail(session),
+                                          onPressed:
+                                              () => _openSessionDetail(session),
                                           icon: const Icon(Icons.chevron_right),
-                                          label: Text(_isTurkish ? 'Detaylar' : 'Details'),
+                                          label: Text(
+                                            _isTurkish ? 'Detaylar' : 'Details',
+                                          ),
                                         ),
                                       ],
                                     ),
@@ -757,9 +1109,11 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
             ],
           ),
-          bottomNavigationBar: AccessibleBottomNav(onTabChanged: _handleTabChange),
+          bottomNavigationBar: AccessibleBottomNav(
+            onTabChanged: _handleTabChange,
+          ),
         );
-      }
+      },
     );
   }
 }

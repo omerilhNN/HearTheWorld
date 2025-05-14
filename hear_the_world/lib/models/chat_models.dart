@@ -44,23 +44,25 @@ class ChatSession {
   final String summary;
   final DateTime timestamp;
   final List<ChatMessage> messages;
+  final String? imageUrl; // Added image URL field
 
   ChatSession({
     required this.id,
     required this.summary,
     required this.timestamp,
+    this.imageUrl, // Added imageUrl parameter
     required this.messages,
   });
 
   String get formattedDate =>
       DateFormat('MMM dd, yyyy • HH:mm').format(timestamp);
-
   Map<String, dynamic> toJson() {
     return {
       'id': id,
       'summary': summary,
       'timestamp': timestamp.toIso8601String(),
       'messages': messages.map((msg) => msg.toJson()).toList(),
+      'imageUrl': imageUrl,
     };
   }
 
@@ -73,6 +75,7 @@ class ChatSession {
           (json['messages'] as List)
               .map((msgJson) => ChatMessage.fromJson(msgJson))
               .toList(),
+      imageUrl: json['imageUrl'],
     );
   }
 }

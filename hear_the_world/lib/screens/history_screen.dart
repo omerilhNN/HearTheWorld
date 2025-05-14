@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../models/chat_models.dart';
 import '../services/accessibility_service.dart';
+import '../services/session_manager.dart';
 import '../utils/app_theme.dart';
 import '../widgets/accessible_bottom_nav.dart';
 import '../main.dart';
@@ -17,39 +18,7 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class _HistoryScreenState extends State<HistoryScreen> {
-  // Mock data for history - in a real app, this would come from storage
-  final List<ChatSession> _historySessions = [
-    ChatSession(
-      id: '1',
-      summary: 'Objects on desk: pen, notebook, coffee mug',
-      timestamp: DateTime.now().subtract(const Duration(days: 1)),
-      messages: [],
-    ),
-    ChatSession(
-      id: '2',
-      summary: 'Kitchen items: plate with sandwich, apple, glass of water',
-      timestamp: DateTime.now().subtract(const Duration(days: 2)),
-      messages: [],
-    ),
-    ChatSession(
-      id: '3',
-      summary: 'Living room: TV remote, books on shelf, reading glasses',
-      timestamp: DateTime.now().subtract(const Duration(days: 3)),
-      messages: [],
-    ),
-    ChatSession(
-      id: '4',
-      summary: 'Bathroom counter: toothbrush, toothpaste, face towel, soap',
-      timestamp: DateTime.now().subtract(const Duration(days: 7)),
-      messages: [],
-    ),
-    ChatSession(
-      id: '5',
-      summary: 'Dinner table: pasta dish, salad bowl, wine glass, water jug',
-      timestamp: DateTime.now().subtract(const Duration(days: 10)),
-      messages: [],
-    ),
-  ];
+  // We'll use SessionManager instead of local mock data
 
   // Filter parameters
   DateTime? _startDate;
@@ -58,9 +27,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
   // Ses çalma durumunu izleyen değişken
   int? _playingSessionId;
-
-  List<ChatSession> get _filteredSessions {
-    return _historySessions.where((session) {
+  List<ChatSession> _filteredSessions(List<ChatSession> sessions) {
+    return sessions.where((session) {
       // Apply date filter
       if (_startDate != null && session.timestamp.isBefore(_startDate!)) {
         return false;
@@ -89,6 +57,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       );
     });
   }
+
   void _handleTabChange(int index) {
     switch (index) {
       case 0:
@@ -261,7 +230,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       session.summary,
                       style: TextStyle(fontSize: AppTheme.regularTextSize),
                     ),
-                    const SizedBox(height: 24),                    // Centered Play Audio button
+                    const SizedBox(height: 24), // Centered Play Audio button
                     Center(
                       child: ElevatedButton.icon(
                         onPressed: () {
@@ -270,7 +239,10 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         icon: const Icon(Icons.volume_up),
                         label: const Text('Play Audio'),
                         style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 24,
+                            vertical: 12,
+                          ),
                         ),
                       ),
                     ),
@@ -309,174 +281,230 @@ class _HistoryScreenState extends State<HistoryScreen> {
     );
     navigationController.changeIndex(1);
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Previous Prompts'),
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            context.go('/home');
-            AccessibilityService().speak('Back to home screen');
-          },
-          tooltip: 'Back to home',
-        ),
-        actions: [
-          // Filter button
-          IconButton(
-            icon: const Icon(Icons.filter_list),
-            onPressed: _showFilterDialog,
-            tooltip: 'Filter history',
+    return Consumer<SessionManager>(
+      builder: (context, sessionManager, _) {
+        final sessions = sessionManager.sessions;
+        final filteredSessions = _filteredSessions(sessions);
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Previous Prompts'),
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () {
+                context.go('/home');
+                AccessibilityService().speak('Back to home screen');
+              },
+              tooltip: 'Back to home',
+            ),
+            actions: [
+              // Filter button
+              IconButton(
+                icon: const Icon(Icons.filter_list),
+                onPressed: _showFilterDialog,
+                tooltip: 'Filter history',
+              ),
+            ],
           ),
-        ],
-      ),
-      body:
-          _filteredSessions.isEmpty
-              ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.history,
-                      size: 64,
-                      color: AppTheme.textSecondary,
+          body:
+              filteredSessions.isEmpty
+                  ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.history,
+                          size: 64,
+                          color: AppTheme.textSecondary,
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No history found',
+                          style: Theme.of(context).textTheme.headlineMedium,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _searchText.isNotEmpty ||
+                                  _startDate != null ||
+                                  _endDate != null
+                              ? 'Try adjusting your filters'
+                              : 'Start a new chat to see history',
+                          style: TextStyle(color: AppTheme.textSecondary),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'No history found',
-                      style: Theme.of(context).textTheme.headlineMedium,
+                  )
+                  : Padding(
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 8.0,
+                      horizontal: 12.0,
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _searchText.isNotEmpty ||
-                              _startDate != null ||
-                              _endDate != null
-                          ? 'Try adjusting your filters'
-                          : 'Start a new chat to see history',
-                      style: TextStyle(color: AppTheme.textSecondary),
-                    ),
-                  ],
-                ),
-              )
-              : Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 12.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        child: ListView.separated(
-                          itemCount: _filteredSessions.length,
-                          separatorBuilder: (context, index) => const SizedBox(height: 12.0),
-                          padding: const EdgeInsets.all(4.0),
-                          itemBuilder: (context, index) {
-                            final session = _filteredSessions[index];
-                            final bool isPlaying = _playingSessionId == int.tryParse(session.id);
-                            
-                            return Semantics(
-                              button: true,
-                              label: 'Chat session from ${session.formattedDate}. Summary: ${session.summary}. Double tap to open details.',
-                              child: Card(
-                                margin: EdgeInsets.zero,
-                                elevation: 2.0,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12.0),
-                                ),
-                                child: InkWell(
-                                  onTap: () => _openSessionDetail(session),
-                                  borderRadius: BorderRadius.circular(12.0),
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Padding(
-                                        padding: const EdgeInsets.all(16.0),
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            Row(
-                                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                              children: [
-                                                // Tarih başlığı
-                                                Text(
-                                                  DateFormat('MMM dd, yyyy').format(session.timestamp),
-                                                  style: TextStyle(
-                                                    fontSize: 14,
-                                                    fontWeight: FontWeight.w600,
-                                                    color: AppTheme.textSecondary,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: ListView.separated(
+                            itemCount: filteredSessions.length,
+                            separatorBuilder:
+                                (context, index) =>
+                                    const SizedBox(height: 12.0),
+                            padding: const EdgeInsets.all(4.0),
+                            itemBuilder: (context, index) {
+                              final session = filteredSessions[index];
+                              final bool isPlaying =
+                                  _playingSessionId == int.tryParse(session.id);
+
+                              return Semantics(
+                                button: true,
+                                label:
+                                    'Chat session from ${session.formattedDate}. Summary: ${session.summary}. Double tap to open details.',
+                                child: Card(
+                                  margin: EdgeInsets.zero,
+                                  elevation: 2.0,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12.0),
+                                  ),
+                                  child: InkWell(
+                                    onTap: () => _openSessionDetail(session),
+                                    borderRadius: BorderRadius.circular(12.0),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Padding(
+                                          padding: const EdgeInsets.all(16.0),
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Row(
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment
+                                                        .spaceBetween,
+                                                children: [
+                                                  // Tarih başlığı
+                                                  Text(
+                                                    DateFormat(
+                                                      'MMM dd, yyyy',
+                                                    ).format(session.timestamp),
+                                                    style: TextStyle(
+                                                      fontSize: 14,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                      color:
+                                                          AppTheme
+                                                              .textSecondary,
+                                                    ),
                                                   ),
-                                                ),
-                                                // Saat gösterimi
-                                                Text(
-                                                  DateFormat('HH:mm').format(session.timestamp),
-                                                  style: TextStyle(
-                                                    fontSize: 14,
-                                                    color: AppTheme.textSecondary,
+                                                  // Saat gösterimi
+                                                  Text(
+                                                    DateFormat(
+                                                      'HH:mm',
+                                                    ).format(session.timestamp),
+                                                    style: TextStyle(
+                                                      fontSize: 14,
+                                                      color:
+                                                          AppTheme
+                                                              .textSecondary,
+                                                    ),
                                                   ),
-                                                ),
-                                              ],
-                                            ),
-                                            const SizedBox(height: 8),
-                                            // Ana içerik
-                                            Text(
-                                              session.summary,
-                                              style: const TextStyle(
-                                                fontSize: 16,
-                                                fontWeight: FontWeight.w500,
+                                                ],
                                               ),
-                                              maxLines: 3,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ],
-                                        ),
-                                      ),                                      // Alt kısım - ses butonu, detay butonu, ve ayarlar butonu
-                                      Container(
-                                        decoration: BoxDecoration(
-                                          color: Colors.grey.shade50,
-                                          borderRadius: const BorderRadius.only(
-                                            bottomLeft: Radius.circular(12.0),
-                                            bottomRight: Radius.circular(12.0),
+                                              const SizedBox(height: 8),
+                                              // Ana içerik
+                                              Text(
+                                                session.summary,
+                                                style: const TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
+                                                maxLines: 3,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ],
+                                          ),
+                                        ), // Alt kısım - ses butonu, detay butonu, ve ayarlar butonu
+                                        Container(
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey.shade50,
+                                            borderRadius:
+                                                const BorderRadius.only(
+                                                  bottomLeft: Radius.circular(
+                                                    12.0,
+                                                  ),
+                                                  bottomRight: Radius.circular(
+                                                    12.0,
+                                                  ),
+                                                ),
+                                          ),
+                                          child: Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              // Ses butonu
+                                              IconButton(
+                                                onPressed:
+                                                    () => _toggleAudio(session),
+                                                icon: Icon(
+                                                  isPlaying
+                                                      ? Icons.stop
+                                                      : Icons.volume_up,
+                                                  color:
+                                                      isPlaying
+                                                          ? Colors.blue
+                                                          : Colors
+                                                              .grey
+                                                              .shade700,
+                                                ),
+                                                tooltip:
+                                                    isPlaying
+                                                        ? 'Stop audio'
+                                                        : 'Play audio',
+                                              ),
+                                              // Center placeholder
+                                              TextButton.icon(
+                                                onPressed:
+                                                    () => _openSessionDetail(
+                                                      session,
+                                                    ),
+                                                icon: const Icon(
+                                                  Icons.chevron_right,
+                                                ),
+                                                label: const Text('Details'),
+                                              ),
+                                              // Settings button on the right
+                                              IconButton(
+                                                onPressed: () {
+                                                  context.go('/settings');
+                                                  AccessibilityService().speak(
+                                                    'Going to settings screen',
+                                                  );
+                                                },
+                                                icon: Icon(
+                                                  Icons.settings,
+                                                  color: Colors.grey.shade700,
+                                                ),
+                                                tooltip: 'Go to settings',
+                                              ),
+                                            ],
                                           ),
                                         ),
-                                        child: Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                          children: [
-                                            // Ses butonu
-                                            IconButton(
-                                              onPressed: () => _toggleAudio(session),
-                                              icon: Icon(
-                                                isPlaying ? Icons.stop : Icons.volume_up,
-                                                color: isPlaying ? Colors.blue : Colors.grey.shade700,
-                                              ),
-                                              tooltip: isPlaying ? 'Stop audio' : 'Play audio',
-                                            ),
-                                            // Center placeholder
-                                            TextButton.icon(
-                                              onPressed: () => _openSessionDetail(session),
-                                              icon: const Icon(Icons.chevron_right),
-                                              label: const Text('Details'),
-                                            ),
-                                            // Settings button on the right
-                                            IconButton(
-                                              onPressed: () {
-                                                context.go('/settings');
-                                                AccessibilityService().speak('Going to settings screen');
-                                              },
-                                              icon: Icon(Icons.settings, color: Colors.grey.shade700),
-                                              tooltip: 'Go to settings',
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ),
-                              ),
-                            );
-                          },
+                              );
+                            },
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-      bottomNavigationBar: AccessibleBottomNav(onTabChanged: _handleTabChange),
+          bottomNavigationBar: AccessibleBottomNav(
+            onTabChanged: _handleTabChange,
+          ),
+        );
+      },
     );
   }
 }

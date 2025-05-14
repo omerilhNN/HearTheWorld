@@ -1,11 +1,20 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:math';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:provider/provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/chat_models.dart';
 import '../services/accessibility_service.dart';
+import '../services/openai_service.dart';
+import '../services/session_manager.dart';
+import '../utils/permission_helper.dart';
 import '../utils/app_theme.dart';
 
 class ChatScreen extends StatefulWidget {
@@ -19,7 +28,10 @@ class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = [];
+  final ImagePicker _imagePicker = ImagePicker();
+  final Uuid _uuid = const Uuid();
   bool _isProcessing = false;
+  bool _isTurkish = false; // For localization support
 
   // For recording voice input
   bool _isRecording = false;
@@ -28,18 +40,21 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
 
-    // Initial loading message when screen opens
-    _addMessage('Sending request to Raspberry Pi...', MessageType.loading);
+    // Welcome message when screen opens
+    _addMessage(
+      'Welcome to Hear The World. Use the camera or type a question.',
+      MessageType.system,
+    );
 
     // Announce screen for accessibility
     WidgetsBinding.instance.addPostFrameCallback((_) {
       AccessibilityService().speak(
-        'New chat screen. Requesting image from Raspberry Pi. Please wait.',
+        'New chat screen. Use the camera button to take a photo or type a question.',
       );
 
-      // Simulate receiving a response after 3 seconds
-      Future.delayed(const Duration(seconds: 3), () {
-        _simulateResponse();
+      // Start camera process automatically
+      Future.delayed(const Duration(milliseconds: 500), () {
+        _captureAndAnalyzePhoto();
       });
     });
   }
@@ -51,33 +66,314 @@ class _ChatScreenState extends State<ChatScreen> {
     super.dispose();
   }
 
-  void _simulateResponse() {
-    // Remove loading message
-    if (_messages.isNotEmpty && _messages.last.type == MessageType.loading) {
+  // Capture photo and analyze with OpenAI
+  Future<void> _captureAndAnalyzePhoto() async {
+    try {
+      // Request camera permission
+      bool hasPermission = await PermissionHelper.requestCameraPermission(
+        context,
+      );
+
+      if (!hasPermission) {
+        AccessibilityService().speak(
+          _isTurkish ? 'Kamera izni gereklidir' : 'Camera permission required',
+        );
+        return;
+      }
+
+      // Set processing state
       setState(() {
-        _messages.removeLast();
+        _isProcessing = true;
       });
+
+      // Show loading message
+      _addMessage(
+        _isTurkish ? 'Kamera açılıyor...' : 'Opening camera...',
+        MessageType.loading,
+      );
+
+      // Show a message to the user that the camera is opening
+      AccessibilityService().speak(
+        _isTurkish ? 'Kamera açılıyor' : 'Opening camera',
+      );
+
+      // Capture photo with camera
+      XFile? photo;
+      try {
+        photo = await _imagePicker.pickImage(
+          source: ImageSource.camera,
+          preferredCameraDevice: CameraDevice.rear,
+        );
+      } catch (cameraError) {
+        // Handle camera errors
+        setState(() {
+          _isProcessing = false;
+          // Remove loading message if it exists
+          if (_messages.isNotEmpty &&
+              _messages.last.type == MessageType.loading) {
+            _messages.removeLast();
+          }
+        });
+
+        AccessibilityService().speak(
+          _isTurkish ? 'Kamera hatası oluştu' : 'Camera error occurred',
+        );
+        if (kDebugMode) {
+          print('Camera error: $cameraError');
+        }
+        return;
+      }
+
+      // Check if user canceled the photo
+      if (photo == null) {
+        setState(() {
+          _isProcessing = false;
+          // Remove loading message if it exists
+          if (_messages.isNotEmpty &&
+              _messages.last.type == MessageType.loading) {
+            _messages.removeLast();
+          }
+        });
+
+        AccessibilityService().speak(
+          _isTurkish
+              ? 'Fotoğraf çekimi iptal edildi'
+              : 'Photo capture canceled',
+        );
+        return;
+      }
+
+      // Update loading message
+      setState(() {
+        if (_messages.isNotEmpty &&
+            _messages.last.type == MessageType.loading) {
+          _messages.removeLast();
+        }
+        _addMessage(
+          _isTurkish
+              ? 'Fotoğraf analiz ediliyor, lütfen bekleyin...'
+              : 'Analyzing photo, please wait...',
+          MessageType.loading,
+        );
+      });
+
+      // Camera has been successfully used, inform user that analysis is now happening
+      AccessibilityService().speak(
+        _isTurkish
+            ? 'Fotoğraf analiz ediliyor, lütfen bekleyin'
+            : 'Analyzing photo, please wait',
+      );
+
+      // Create a File object from the XFile
+      File imageFile;
+      try {
+        // Geçici bir değişken kullan
+        final String filePath = photo.path;
+
+        if (kDebugMode) {
+          print('Trying to create File from path: $filePath');
+        }
+
+        // Önce yolun boş olup olmadığını kontrol et
+        if (filePath.isEmpty) {
+          throw Exception('Photo path is empty');
+        }
+
+        // Dosyayı oluştur
+        imageFile = File(filePath);
+
+        // Dosya var mı diye kontrol et
+        final bool fileExists = await imageFile.exists();
+
+        if (kDebugMode) {
+          print('File exists check result: $fileExists for path: $filePath');
+        }
+
+        if (!fileExists) {
+          throw Exception('Image file does not exist at path: $filePath');
+        }
+
+        // Dosya boyutunu kontrol et
+        final int fileSize = await imageFile.length();
+
+        if (kDebugMode) {
+          print('File size: $fileSize bytes');
+        }
+
+        if (fileSize <= 0) {
+          throw Exception('Image file is empty (0 bytes)');
+        }
+
+        // Dosya okunabilir mi diye kontrol et
+        try {
+          final bytes = await imageFile.readAsBytes();
+          if (bytes.isEmpty) {
+            throw Exception('Could not read any bytes from file');
+          }
+
+          if (kDebugMode) {
+            print('Successfully read ${bytes.length} bytes from file');
+          }
+        } catch (readError) {
+          if (kDebugMode) {
+            print('Error reading file bytes: $readError');
+          }
+          throw Exception('Failed to read file contents: $readError');
+        }
+      } catch (fileError) {
+        setState(() {
+          _isProcessing = false;
+          // Remove loading message if it exists
+          if (_messages.isNotEmpty &&
+              _messages.last.type == MessageType.loading) {
+            _messages.removeLast();
+          }
+        });
+
+        // Detaylı hata mesajı ekleyin
+        final String errorMessage =
+            'File processing error: ${fileError.toString()}';
+
+        AccessibilityService().speak(
+          _isTurkish
+              ? 'Dosya işleme hatası oluştu: ${fileError.toString()}'
+              : errorMessage,
+        );
+
+        // Hata mesajını UI'da göster
+        _addMessage(errorMessage, MessageType.system);
+
+        if (kDebugMode) {
+          print('File error: $fileError');
+        }
+        return;
+      }
+
+      // Use OpenAI service to analyze the image
+      String? analysis;
+      try {
+        // Bu kısmı base64 kodlamasını kullanarak yapabiliriz
+        final bytes = await imageFile.readAsBytes();
+        final base64Image = base64Encode(bytes);
+
+        if (kDebugMode) {
+          print(
+            'Successfully encoded image to base64: ${base64Image.length} characters',
+          );
+        }
+
+        // Base64 kullanarak analiz yapın
+        final result = await OpenAIService().analyzeBase64Image(base64Image);
+
+        if (result == null || result.isEmpty) {
+          throw Exception('API returned empty result');
+        }
+
+        analysis = result;
+
+        if (kDebugMode) {
+          print(
+            'Received analysis from API: ${analysis.substring(0, min(100, analysis.length))}...',
+          );
+        }
+      } catch (aiError) {
+        setState(() {
+          _isProcessing = false;
+          // Remove loading message if it exists
+          if (_messages.isNotEmpty &&
+              _messages.last.type == MessageType.loading) {
+            _messages.removeLast();
+          }
+        });
+
+        AccessibilityService().speak(
+          _isTurkish
+              ? 'Görsel analiz hatası oluştu'
+              : 'Image analysis error occurred',
+        );
+
+        // Show error message to user
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _isTurkish
+                  ? 'Görsel analizi yapılamadı: ${aiError.toString()}'
+                  : 'Failed to analyze image: ${aiError.toString()}',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+
+        if (kDebugMode) {
+          print('AI analysis error: $aiError');
+        }
+        return;
+      }
+
+      // Remove loading message and add analysis
+      setState(() {
+        _isProcessing = false;
+        // Remove loading message if it exists
+        if (_messages.isNotEmpty &&
+            _messages.last.type == MessageType.loading) {
+          _messages.removeLast();
+        }
+
+        // Add the analysis result
+        _addMessage(analysis!, MessageType.system);
+      });
+
+      // Create a new chat session with the analysis
+      final newSession = ChatSession(
+        id: _uuid.v4(),
+        summary: analysis!,
+        timestamp: DateTime.now(),
+        messages: [
+          ChatMessage(
+            id: _uuid.v4(),
+            content: analysis,
+            type: MessageType.system,
+            timestamp: DateTime.now(),
+          ),
+        ],
+      );
+
+      // Add session to SessionManager
+      Provider.of<SessionManager>(
+        context,
+        listen: false,
+      ).addSession(newSession);
+
+      // Provide haptic feedback
+      HapticFeedback.mediumImpact();
+
+      // Announce the response is ready
+      AccessibilityService().speakWithFeedback(
+        _isTurkish
+            ? 'Analiz tamamlandı. ${analysis.length > 50 ? analysis.substring(0, 50) + '...' : analysis}'
+            : 'Analysis complete. ${analysis.length > 50 ? analysis.substring(0, 50) + '...' : analysis}',
+        FeedbackType.success,
+      );
+    } catch (e) {
+      // General error handler
+      setState(() {
+        _isProcessing = false;
+        // Remove loading message if it exists
+        if (_messages.isNotEmpty &&
+            _messages.last.type == MessageType.loading) {
+          _messages.removeLast();
+        }
+      });
+
+      AccessibilityService().speak(
+        _isTurkish
+            ? 'Fotoğraf analizi sırasında hata oluştu'
+            : 'Error analyzing photo',
+      );
+      if (kDebugMode) {
+        print('Photo capture error: $e');
+      }
     }
-
-    // Add simulated system message
-    _addMessage(
-      'I can see several objects on your desk:\n'
-      '1. A pair of sunglasses with black frames\n'
-      '2. A smartphone (appears to be an iPhone)\n'
-      '3. A coffee mug with steam rising\n'
-      '4. A notebook with a pen on top\n\n'
-      'Would you like me to provide more details about any of these items?',
-      MessageType.system,
-    );
-
-    // Provide haptic feedback
-    HapticFeedback.mediumImpact();
-
-    // Announce the response is ready
-    AccessibilityService().speakWithFeedback(
-      'Response ready. I can see several objects on your desk.',
-      FeedbackType.success,
-    );
   }
 
   void _handleSubmit() {
